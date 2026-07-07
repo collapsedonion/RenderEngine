@@ -105,7 +105,7 @@ EXPORT_RE RE_pShaderModule re_create_shader_module(
 
                 default:
 
-
+                    break;
 
             }
 

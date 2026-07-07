@@ -9,6 +9,7 @@
 #include <mutex>
 
 #define GLFW_INCLUDE_VULKAN
+#include <iostream>
 #include <GLFW/glfw3.h>
 #include <vk_mem_alloc.h>
 
@@ -47,10 +48,15 @@ std::mutex vk_pool_lock{};
 vk::DescriptorSetLayout vk_empty_descriptor_set_layout;
 
 inline void init_swap_chain(bool recreate = false) {
+    const vk::SurfaceFormatKHR desired_format = {
+        vk::Format::eR8G8B8A8Srgb,
+        vk::ColorSpaceKHR::eSrgbNonlinear
+    };
+
     auto swap_chain_builder = vkb::SwapchainBuilder(
         vkb_device,
         vk_surface
-    );
+    ).set_desired_format(desired_format);
 
     swap_chain_builder.add_image_usage_flags(VK_IMAGE_USAGE_STORAGE_BIT);
 
@@ -101,7 +107,7 @@ void populate_swapchain() {
     vk_swap_chain_views.clear();
 
     vk_swap_chain_semaphores.reserve(vkb_swap_chain.image_count);
-    re_swap_chain_images.reserve(vkb_swap_chain.image_count);
+    re_swap_chain_images.resize(vkb_swap_chain.image_count);
 
     vk::Device _device = vkb_device.device;
 
@@ -143,7 +149,7 @@ EXPORT_RE void init_render_engine(
             .set_app_name("Render Engine")
             .set_minimum_instance_version(1, 4)
             .enable_extensions(glfw_extension_count, glfw_extensions)
-            .enable_validation_layers();
+            ;//.enable_validation_layers();
 
     auto instance = instance_builder.build();
 
@@ -211,6 +217,7 @@ EXPORT_RE void init_render_engine(
     vkb_physical_device = physical_device.value();
 
     std::print("Found GPU: {}", vkb_physical_device.name);
+    std::flush(std::cout);
 
     auto device = vkb::DeviceBuilder(
         vkb_physical_device
@@ -290,24 +297,33 @@ swap_chain_accssing:
         next_image_semaphore = 0;
     }
 
-    auto result = vk_device.acquireNextImageKHR(
-        vkb_swap_chain.swapchain,
-        UINT64_MAX,
-        vk_swap_chain_semaphores[next_image_semaphore],
-        {}
-    );
+    int64_t id;
 
-    if (result.result != vk::Result::eSuccess) {
+    try
+    {
+        auto result = vk_device.acquireNextImageKHR(
+            vkb_swap_chain.swapchain,
+            UINT64_MAX,
+            vk_swap_chain_semaphores[next_image_semaphore],
+            {}
+        );
+        id = result.value;
+    }catch (vk::OutOfDateKHRError& _)
+    {
+        id = -1;
+    }
+
+    if (id == -1) {
         init_swap_chain(true);
         populate_swapchain();
         goto swap_chain_accssing;
     }
 
 
-    auto* image = &re_swap_chain_images[result.value];
+    auto* image = &re_swap_chain_images[id];
     image->is_swapchain = true;
-    image->image = vk_swap_chain_images[result.value];
-    image->view = vk_swap_chain_views[result.value];
+    image->image = vk_swap_chain_images[id];
+    image->view = vk_swap_chain_views[id];
     image->last_layout = vk::ImageLayout::eUndefined;
     image->uid = gen_uid();
 
@@ -315,7 +331,7 @@ swap_chain_accssing:
     image->width = vkb_swap_chain.extent.width;
     image->height = vkb_swap_chain.extent.height;
     image->format = static_cast<vk::Format>(vkb_swap_chain.image_format);
-    image->image_index = result.value;
+    image->image_index = id;
 
     next_image_semaphore++;
 
@@ -391,16 +407,15 @@ EXPORT_RE void re_present_image(
     present_info.pImageIndices = &_image->image_index;
 
     vkb_device_lock.lock();
-    vk_queue.presentKHR(present_info);
-    vkb_device_lock.unlock();
 
-    free_semaphore(_image->semaphore);
-
-    std::thread t = std::thread(
-        [=]() {
+    auto free_call =
+        [=](bool wait) {
             auto _fence = fence;
             auto _cb = cb;
-            device.waitForFences({_fence}, true, UINT64_MAX);
+            if (wait)
+            {
+                device.waitForFences({_fence}, true, UINT64_MAX);
+            }
 
             vkb_device_lock.lock();
             device.destroy(_fence);
@@ -408,7 +423,34 @@ EXPORT_RE void re_present_image(
             device.freeCommandBuffers(vk_render_command_pool, {_cb});
             vk_pool_lock.unlock();
             vkb_device_lock.unlock();
+    };
+
+    try
+    {
+        auto result = vk_queue.presentKHR(present_info);
+        if (result != vk::Result::eSuccess)
+        {
+            vkb_device_lock.unlock();
+            free_call(false);
+            free_semaphore(_image->semaphore);
+            return;
         }
+    }catch (vk::OutOfDateKHRError& _)
+    {
+        vkb_device_lock.unlock();
+        free_call(false);
+        free_semaphore(_image->semaphore);
+        return;
+    }
+
+
+    vkb_device_lock.unlock();
+
+    free_semaphore(_image->semaphore);
+
+    std::thread t = std::thread(
+       free_call,
+       true
     );
 
     t.detach();

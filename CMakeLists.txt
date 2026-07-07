@@ -1,14 +1,15 @@
 cmake_minimum_required(VERSION 4.2)
 
 set(CMAKE_CXX_STANDARD 26)
+set(VK_BOOTSTRAP_POSITION_INDEPENDENT_CODE ON CACHE BOOL "" FORCE)
 
 include(FetchContent)
 FetchContent_Declare(
         vk_bootstrap
         GIT_REPOSITORY https://github.com/charles-lunarg/vk-bootstrap.git
-        GIT_TAG        v1.4.341
+        GIT_TAG        v1.4.350
 )
-FetchContent_MakeAvailable(vk_bootstrap)
+FetchContent_MakeAvailable(vk_bootstrap )
 
 FetchContent_Declare(
         glfw

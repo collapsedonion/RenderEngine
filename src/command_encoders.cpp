@@ -53,6 +53,8 @@ inline vk::AccessFlags2 getImageAccessBits(
             return vk::AccessFlagBits2::eShaderRead | vk::AccessFlagBits2::eShaderWrite;
         case vk::ImageLayout::eDepthAttachmentOptimal:
             return vk::AccessFlagBits2::eShaderRead | vk::AccessFlagBits2::eShaderWrite;
+        case vk::ImageLayout::ePresentSrcKHR:
+            return vk::AccessFlagBits2::eTransferRead | vk::AccessFlagBits2::eShaderRead;
         default:
             break;
     }
@@ -307,7 +309,7 @@ std::vector<vk::DescriptorSet> extractDescriptorSets(
 
                 default:
 
-
+                    break;
             }
         }
 

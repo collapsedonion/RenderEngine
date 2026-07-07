@@ -6,6 +6,7 @@
 #define RENDERENGINE_UID_H
 
 #include <chrono>
+#include <cmath>
 
 typedef uint64_t UID;
 

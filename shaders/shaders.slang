@@ -56,6 +56,11 @@ void texture_test(uint3 id: SV_DispatchThreadID){
 
     float2 samplexy = float2(float2((float)id.x / (float)width, (float)id.y / (float)height));
 
-    image.Store(id.xy, sampled_image.Sample(samplexy));
+    float4 uncorrected_color = sampled_image.Sample(samplexy);
+    //aprox_gamma_correct
+    float a = 1.0f/2.2f;
+    float4 corrected = pow(uncorrected_color, float4(a,a,a,1.0f));
+
+    image.Store(id.xy, corrected);
 }
 
