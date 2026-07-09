@@ -443,8 +443,9 @@ EXPORT_RE void re_present_image(
         return;
     }
 
-
     vkb_device_lock.unlock();
+
+    update_image_layouts(rf);
 
     free_semaphore(_image->semaphore);
 

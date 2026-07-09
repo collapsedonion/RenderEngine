@@ -1,0 +1,18 @@
+{
+  "bricks_texture":
+  {
+    "type": "texture",
+    "path": "./bricks.jpg",
+    "linear_filtering": false,
+    "repeat_u": false,
+    "repeat_v": false
+  },
+  "teapot_model":
+  {
+    "type": "mesh",
+    "path": "utah_teapot.obj",
+    "flip_triangle_order": true,
+    "include_uvs": true,
+    "include_normals": false
+  }
+}

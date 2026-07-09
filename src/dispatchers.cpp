@@ -204,6 +204,8 @@ EXPORT_RE void re_render(
     rendering_info.renderArea = rect;
     rendering_info.layerCount = 1;
 
+    update_image_layouts(rf);
+
     vk_pool_lock.lock();
 
     secondary_buffers[1].beginRendering(rendering_info);

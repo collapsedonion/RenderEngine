@@ -29,7 +29,8 @@ enum USAGE_TYPE {
 
 struct ResourceFrame {
     std::unordered_map<UID, USAGE_TYPE> used_buffers;
-    std::unordered_map<UID, USAGE_TYPE> used_images;
+    //Usage type, changed layout
+    std::unordered_map<RE_Image*, std::pair<USAGE_TYPE, vk::ImageLayout>> used_images;
 
     std::set<vk::Semaphore **> needed_semaphores;
 };
@@ -48,6 +49,10 @@ void process_images_sync(
     size_t buffer_count
 );
 
+void update_image_layouts(
+    const ResourceFrame& rf
+);
+
 void record_buffers_transport(
     vk::CommandBuffer command_buffer,
     RE_Buffer *from_buffer,
@@ -58,6 +63,7 @@ void record_buffers_transport(
 );
 
 void record_buffer_to_image_transport(
+    const ResourceFrame& rf,
     vk::CommandBuffer command_buffer,
     RE_Buffer *from_buffer,
     RE_Image *to_image

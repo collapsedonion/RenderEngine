@@ -17,8 +17,9 @@
 #include "resource_lib.h"
 #include "glm/fwd.hpp"
 
-const char *image_path = "bricks.jpg";
-const char *model_path = "utah_teapot.obj";
+
+const std::string json_path = "resources.json";
+
 const uint32_t teapot_count = 100;
 const uint32_t teapot_per_row = 5;
 
@@ -27,7 +28,8 @@ RE_pDescriptorSet teapot_resources_sets[teapot_count] = {};
 RE_RenderObject teapot_render_objects[teapot_count] = {};
 glm::vec3 teapot_rotation_directions[teapot_count] = {};
 
-int main() {
+int main()
+{
     glfwInit();
     glfwInitVulkanLoader(vkGetInstanceProcAddr);
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
@@ -35,16 +37,16 @@ int main() {
     //  glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
     auto window =
-            glfwCreateWindow(640, 480, "Render Engine", nullptr, nullptr);
+        glfwCreateWindow(640, 480, "Render Engine", nullptr, nullptr);
 
     init_render_engine(window);
     rm_init_resource_manager();
 
-    auto *shader_code = re_load_spirv_code(
+    auto* shader_code = re_load_spirv_code(
         "shaders/compiled/shaders.spv"
     );
 
-    auto *module = re_create_shader_module(shader_code);
+    auto* module = re_create_shader_module(shader_code);
 
     re_register_render_pipeline(
         module,
@@ -61,27 +63,17 @@ int main() {
     RE_pDescriptorSet descriptorSet{};
     uint32_t set_index = 0;
 
-    auto model_count = rm_load_models(
-        model_path,
-        "teapot",
-        true,
-        true,
-        false
-    );
-
-    rm_load_texture(
-        image_path,
-        "brick_wall",
-        true,
-        false,
-        false
+    rm_load_resources_from_json(
+        json_path.c_str()
     );
 
     re_create_descriptor_sets(global_descriptor_pool, 1, &set_index, &descriptorSet);
 
-    const char *rw_texture_name = "image";
-    const char *sampled_texture_name = "sampled_image";
-    const char *matrix_buffer_name = "matrix";
+    uint32_t model_count = rm_get_loaded_mesh_count("teapot_model");
+
+    const char* rw_texture_name = "image";
+    const char* sampled_texture_name = "sampled_image";
+    const char* matrix_buffer_name = "matrix";
 
     RE_pImage depth_buffer = re_create_image(
         1024,
@@ -102,7 +94,7 @@ int main() {
     );
 
     RE_pImage brick_wall_texture = rm_get_loaded_texture(
-        "brick_wall"
+        "bricks_texture"
     );
 
     //Write display function source texture
@@ -113,10 +105,11 @@ int main() {
         &render_image
     );
 
-    auto teapot_vertex_buffer = rm_get_loaded_model("teapot_0");
+    auto teapot_vertex_buffer = rm_get_loaded_mesh("teapot_model_0");
 
     //init teapots data
-    for (uint32_t i = 0; i < teapot_count; i++) {
+    for (uint32_t i = 0; i < teapot_count; i++)
+    {
         re_create_descriptor_sets(global_descriptor_pool, 1, &set_index, &teapot_resources_sets[i]);
         teapot_position_matricies[i] = re_create_buffer(
             sizeof(glm::fmat4),
@@ -126,8 +119,8 @@ int main() {
         teapot_render_objects[i].descriptor_set_count = 1;
         teapot_render_objects[i].descriptor_sets = &teapot_resources_sets[i];
 
-        teapot_rotation_directions[i] = glm::vec3((float) rand() / (float) RAND_MAX, (float) rand() / (float) RAND_MAX,
-                                                  (float) rand() / (float) RAND_MAX);
+        teapot_rotation_directions[i] = glm::vec3((float)rand() / (float)RAND_MAX, (float)rand() / (float)RAND_MAX,
+                                                  (float)rand() / (float)RAND_MAX);
 
         re_write_set_buffers(
             teapot_resources_sets[i],
@@ -154,7 +147,8 @@ int main() {
 
     re_wait_device_free();
 
-    while (!glfwWindowShouldClose(window)) {
+    while (!glfwWindowShouldClose(window))
+    {
         glfwPollEvents();
 
         auto present_image = re_get_present_image();
@@ -166,29 +160,30 @@ int main() {
 
         glm::mat4 perspective_matrix = glm::perspective(
             glm::radians(45.0f),
-            (float) present_width / (float) present_height,
+            (float)present_width / (float)present_height,
             0.1f,
             100.0f
         );
 
         {
-            for (uint32_t i = 0; i < teapot_count; i++) {
-                auto *mat = reinterpret_cast<glm::mat4 *>(re_map_buffer(teapot_position_matricies[i]));
+            for (uint32_t i = 0; i < teapot_count; i++)
+            {
+                auto* mat = reinterpret_cast<glm::mat4*>(re_map_buffer(teapot_position_matricies[i]));
 
                 *mat =
-                        perspective_matrix
-                        *
-                        glm::translate(glm::mat4(1.0f),
-                                       glm::vec3(
-                                           begin_offset + 4.0 * (i % teapot_per_row),
-                                           sin(teapot_y_displacement * (std::numbers::pi / 1.0f) - (i / teapot_per_row) * (
-                                                   std::numbers::pi / 4.0f)),
-                                           -10.0f - (i / teapot_per_row) * 2.0f))
-                        *
+                    perspective_matrix
+                    *
+                    glm::translate(glm::mat4(1.0f),
+                                   glm::vec3(
+                                       begin_offset + 4.0 * (i % teapot_per_row),
+                                       sin(teapot_y_displacement * (std::numbers::pi / 1.0f) - (i / teapot_per_row) * (
+                                           std::numbers::pi / 4.0f)),
+                                       -10.0f - (i / teapot_per_row) * 2.0f))
+                    *
 
-                        glm::rotate(glm::mat4(1.0f), teapot_y_displacement, teapot_rotation_directions[i])
-                        *
-                        scaling_matrix;
+                    glm::rotate(glm::mat4(1.0f), teapot_y_displacement, teapot_rotation_directions[i])
+                    *
+                    scaling_matrix;
 
 
                 re_unmap_buffer(teapot_position_matricies[i]);
@@ -242,7 +237,8 @@ int main() {
         &descriptorSet
     );
 
-    for (uint32_t i = 0; i < teapot_count; i++) {
+    for (uint32_t i = 0; i < teapot_count; i++)
+    {
         re_free_buffer(teapot_position_matricies[i]);
     }
 

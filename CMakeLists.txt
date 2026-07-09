@@ -57,6 +57,13 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(glm)
 
+FetchContent_Declare(
+        json
+        GIT_REPOSITORY https://github.com/nlohmann/json.git
+        GIT_TAG v3.12.0
+)
+FetchContent_MakeAvailable(json)
+
 project(RenderEngineLIB)
 
 find_package(Vulkan REQUIRED COMPONENTS SPIRV-Tools)
@@ -103,6 +110,7 @@ add_library(
         SHARED
         headers/resource_lib/resource_lib.h
         src/resource_lib/resource_loader.cpp
+        src/resource_lib/json_loader.cpp
 )
 
 target_include_directories(
@@ -114,6 +122,7 @@ target_include_directories(
 target_link_libraries(
         ResourceLib
         RenderEngineLib
+        nlohmann_json::nlohmann_json
 )
 
 project(RenderEngine)

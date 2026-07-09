@@ -11,7 +11,7 @@
 
 #define EXPORT_R extern "C"
 
-std::unordered_map<std::string, RE_pBuffer> r_loaded_models;
+std::unordered_map<std::string, std::vector<RE_pBuffer>> r_loaded_models;
 std::unordered_map<std::string, RE_pImage> r_loaded_images;
 
 EXPORT_R void rm_init_resource_manager() {
@@ -92,12 +92,6 @@ EXPORT_R uint32_t rm_load_models(
         );
 
         device_meshes.push_back(new_mesh);
-        r_loaded_models.insert(
-            {
-                std::format("{}_{}", model_name, i),
-                new_mesh
-            }
-        );
 
         RE_BufferToBufferTransfer buffer_to_transfer {};
         buffer_to_transfer.from_buffer = loaded_mesh;
@@ -113,6 +107,13 @@ EXPORT_R uint32_t rm_load_models(
         buffer_transfers.size(),
         load_model_callback,
         context
+    );
+
+    r_loaded_models.insert(
+        {
+            model_name,
+            std::move(device_meshes)
+        }
     );
 
     re_free_load_cache(cache);
@@ -160,14 +161,46 @@ EXPORT_R void rm_load_texture(
     );
 }
 
-EXPORT_R RE_pBuffer rm_get_loaded_model(
-    const char* model_name
+EXPORT_R RE_pBuffer rm_get_loaded_mesh(
+    const char* c_mesh_name
 ) {
+    const std::string mesh_name(c_mesh_name);
+
+    size_t last_undescore_index = mesh_name.rfind('_');
+
+    if (last_undescore_index == std::string::npos)
+    {
+        return nullptr;
+    }
+
+    auto model_name = mesh_name.substr(0, last_undescore_index);
+    auto mesh_index = std::stoull(mesh_name.substr(last_undescore_index+1));
+
     if (!r_loaded_models.contains(model_name)) {
         return nullptr;
     }
 
-    return r_loaded_models[model_name];
+    auto& mesh_vector = r_loaded_models.at(model_name);
+
+    if (mesh_index >= mesh_vector.size())
+    {
+        return nullptr;
+    }
+
+    return mesh_vector[mesh_index];
+}
+
+
+EXPORT_R uint32_t rm_get_loaded_mesh_count(
+    const char* model_name
+)
+{
+    if (r_loaded_models.contains(model_name))
+    {
+       return r_loaded_models[model_name].size();
+    }
+
+    return 0;
 }
 
 EXPORT_R RE_pBuffer rm_get_loaded_texture(
@@ -180,11 +213,15 @@ EXPORT_R RE_pBuffer rm_get_loaded_texture(
     return r_loaded_images[model_name];
 }
 
-EXPORT_R void rm_free_models() {
+EXPORT_R void rm_free_models()
+{
     re_wait_device_free();
 
-    for (auto buffer: r_loaded_models) {
-        re_free_buffer(buffer.second);
+    for (auto& [_, meshs]: r_loaded_models) {
+        for (auto mesh : meshs)
+        {
+            re_free_buffer(mesh);
+        }
     }
 
     r_loaded_models.clear();

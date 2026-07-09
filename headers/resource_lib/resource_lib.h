@@ -12,7 +12,11 @@
 
 EXPORT_R void rm_init_resource_manager();
 
-//loads all models with names formated as {model_name}_{mesh_index}
+EXPORT_R void rm_load_resources_from_json(
+    const char* path_to_json
+);
+
+//loads all mesh's from file, with names formated as {model_name}_{mesh_index}
 //where mesh_index in range from 0 to output values excluding
 EXPORT_R uint32_t rm_load_models(
     const char* model_path,
@@ -22,7 +26,11 @@ EXPORT_R uint32_t rm_load_models(
     bool include_normals
 );
 
-EXPORT_R RE_pBuffer rm_get_loaded_model(
+EXPORT_R RE_pBuffer rm_get_loaded_mesh(
+    const char* mesh_name
+);
+
+EXPORT_R uint32_t rm_get_loaded_mesh_count(
     const char* model_name
 );
 

@@ -83,6 +83,19 @@ inline vk::ImageLayout getImageLayout(
     }
 }
 
+inline vk::ImageLayout get_image_actual_image_layout(
+    const ResourceFrame& resource_frame,
+    RE_Image* pImage
+)
+{
+    if (!resource_frame.used_images.contains(pImage))
+    {
+        return pImage->last_layout;
+    }
+
+    return resource_frame.used_images.at(pImage).second;
+}
+
 void record_compute_shader_submit(
     vk::CommandBuffer command_buffer,
     RE_ShaderModule *shader_module,
@@ -144,6 +157,7 @@ void record_buffers_transport(
 }
 
 void record_buffer_to_image_transport(
+    const ResourceFrame& rf,
     vk::CommandBuffer command_buffer,
     RE_Buffer *from_buffer,
     RE_Image *to_image
@@ -164,7 +178,7 @@ void record_buffer_to_image_transport(
     command_buffer.copyBufferToImage(
         from_buffer->buffer,
         to_image->image,
-        to_image->last_layout,
+        get_image_actual_image_layout(rf, to_image),
         1,
         &buffer_image_copy
     );
@@ -228,16 +242,16 @@ void process_images_sync(
     for (size_t i = 0; i < buffer_count; i++) {
         auto &image = images[i];
 
-        if (!resource_frame->used_images.contains(image.first->uid)) {
-            resource_frame->used_images.insert({image.first->uid, image.second});
+        if (!resource_frame->used_images.contains(image.first)) {
+            resource_frame->used_images.insert({image.first, {image.second, image.first->last_layout}});
         }
 
-        auto &used_image = resource_frame->used_images[image.first->uid];
+        auto &used_image = resource_frame->used_images[image.first];
 
         vk::ImageMemoryBarrier2 barrier = {};
 
         barrier.image = image.first->image;
-        barrier.oldLayout = image.first->last_layout;
+        barrier.oldLayout = get_image_actual_image_layout(*resource_frame, image.first);
         barrier.newLayout = getImageLayout(image.second);
         barrier.srcAccessMask = getImageAccessBits(barrier.oldLayout);
         barrier.dstAccessMask = getImageAccessBits(barrier.newLayout);
@@ -252,9 +266,7 @@ void process_images_sync(
                     ? vk::ImageAspectFlagBits::eDepth
                     : vk::ImageAspectFlagBits::eColor;
 
-        image.first->last_layout = barrier.newLayout;
-
-        resource_frame->used_images[image.first->uid] = image.second;
+        resource_frame->used_images[image.first] = {image.second, barrier.newLayout};
 
         barriers.push_back(barrier);
     }
@@ -266,6 +278,16 @@ void process_images_sync(
     vk_pool_lock.lock();
     command_buffer.pipelineBarrier2(dp_info);
     vk_pool_lock.unlock();
+}
+
+void update_image_layouts(
+    const ResourceFrame& rf
+)
+{
+    for (auto& [pImage, data] : rf.used_images)
+    {
+        pImage->last_layout = data.second;
+    }
 }
 
 std::vector<vk::DescriptorSet> extractDescriptorSets(

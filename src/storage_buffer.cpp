@@ -186,6 +186,7 @@ EXPORT_RE void re_transfer_buffer_to_image(
     );
 
     record_buffer_to_image_transport(
+        rf,
         command_buffer,
         from,
         to
@@ -218,6 +219,8 @@ EXPORT_RE void re_transfer_buffer_to_image(
     vkb_device_lock.unlock();
     queue.submit(submit_info, fence);
     vkb_device_lock.unlock();
+
+    update_image_layouts(rf);
 
     std::thread t([=]() {
         vk::Fence _fence = fence;
