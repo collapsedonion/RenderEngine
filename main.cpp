@@ -57,21 +57,15 @@ int main()
     );
 
     RE_pDescriptorPool global_descriptor_pool = re_create_descriptor_pool(
-        module, 2 + teapot_count
+        module, teapot_count
     );
-
-    RE_pDescriptorSet descriptorSet{};
-    uint32_t set_index = 0;
 
     rm_load_resources_from_json(
         json_path.c_str()
     );
 
-    re_create_descriptor_sets(global_descriptor_pool, 1, &set_index, &descriptorSet);
-
     uint32_t model_count = rm_get_loaded_mesh_count("teapot_model");
 
-    const char* rw_texture_name = "image";
     const char* sampled_texture_name = "sampled_image";
     const char* matrix_buffer_name = "matrix";
 
@@ -97,16 +91,9 @@ int main()
         "bricks_texture"
     );
 
-    //Write display function source texture
-    re_write_set_images(
-        descriptorSet,
-        1,
-        &sampled_texture_name,
-        &render_image
-    );
-
     auto teapot_vertex_buffer = rm_get_loaded_mesh("teapot_model_0");
 
+    uint32_t set_index = 0;
     //init teapots data
     for (uint32_t i = 0; i < teapot_count; i++)
     {
@@ -126,7 +113,9 @@ int main()
             teapot_resources_sets[i],
             1,
             &matrix_buffer_name,
-            &teapot_position_matricies[i]
+            &teapot_position_matricies[i],
+            nullptr,
+            nullptr
         );
 
         re_write_set_images(
@@ -190,16 +179,6 @@ int main()
             }
         }
 
-        {
-            re_wait_device_free();
-            re_write_set_images(
-                descriptorSet,
-                1,
-                &rw_texture_name,
-                &present_image
-            );
-        }
-
         re_render(
             "test_gp",
             module,
@@ -207,18 +186,16 @@ int main()
             &render_image,
             teapot_count,
             teapot_render_objects,
-            &depth_buffer
+            &depth_buffer,
+          false
         );
 
-        re_dispatch_compute_shader(
-            "texture_test",
-            module,
-            1,
-            &descriptorSet,
-            present_width / 16,
-            present_height / 16,
-            1
-        );
+        RE_ImageToImageTransfer transfer_info = {
+            .from_image = render_image,
+            .to_image = present_image
+        };
+
+        re_transfer_image_to_image(&transfer_info, 1);
 
         re_present_image(present_image);
 
@@ -230,12 +207,6 @@ int main()
     }
 
     re_wait_device_free();
-
-
-    re_free_descriptor_sets(
-        1,
-        &descriptorSet
-    );
 
     for (uint32_t i = 0; i < teapot_count; i++)
     {

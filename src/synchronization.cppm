@@ -2,12 +2,15 @@
 // Created by Роман  Тимофеев on 04.05.2026.
 //
 
-#include "synchronization.h"
+module;
 
-#include <ranges>
 #include <unordered_map>
+#include <vector>
+#include <cstdint>
+#include <vulkan/vulkan.hpp>
 
-#include "render_engine_shares.h"
+export module synchronization;
+import render_engine_shares;
 
 constexpr uint32_t SEMAPHORES_COUNT = 32;
 
@@ -22,7 +25,7 @@ std::pmr::unordered_map<vk::Semaphore *, uint32_t> semaphore_reverse_map{};
 
 uint32_t last_allocated;
 
-void init_semaphores() {
+export void init_semaphores() {
     last_allocated = SEMAPHORES_COUNT;
 
     vk::Device device = vkb_device.device;
@@ -40,7 +43,7 @@ void init_semaphores() {
     }
 }
 
-std::pair<vk::Semaphore, bool> get_next_semaphore(uint32_t resource_count, vk::Semaphore ***resource_field) {
+export std::pair<vk::Semaphore, bool> get_next_semaphore(uint32_t resource_count, vk::Semaphore ***resource_field) {
     if (last_allocated == 0) {
         last_allocated = SEMAPHORES_COUNT;
     }
@@ -90,17 +93,17 @@ void test_semaphores() {
     get_next_semaphore(5, semaphores.data() + 5);
 }
 
-bool is_waited(vk::Semaphore* semaphore) {
+export bool is_waited(vk::Semaphore* semaphore) {
    return semaphore_reverse_map.contains(semaphore) && !semaphores_resources[semaphore_reverse_map[semaphore]].accessed;
 }
 
-void free_semaphore(vk::Semaphore* semaphore) {
+export void free_semaphore(vk::Semaphore* semaphore) {
     if (semaphore_reverse_map.contains(semaphore)) {
         semaphores_resources[semaphore_reverse_map[semaphore]].accessed = false;
     }
 }
 
-void free_semaphores() {
+export void free_semaphores() {
     vk::Device device = vkb_device.device;
     for (auto &allocated_semaphore: allocated_semaphores) {
         device.destroy(allocated_semaphore);

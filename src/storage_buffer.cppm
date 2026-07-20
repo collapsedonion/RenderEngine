@@ -1,23 +1,41 @@
 //
 // Created by Роман  Тимофеев on 11.05.2026.
 //
-#include <set>
+module;
 
 #include <re_typedefs.h>
 #include <render_engine.h>
-#include "render_engine_shares.h"
-#include "storage_buffer.h"
 #include "stb_image.h"
 
 #include <thread>
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
+#include <VkBootstrap.h>
+#include <ranges>
 
-#include "command_encoders.h"
+#include <vulkan/vulkan.hpp>
+#include <vk_mem_alloc.h>
+#include "uid.h"
+
 #include "export_macro.h"
 
-EXPORT_RE uint8_t *re_map_buffer(RE_pBuffer buffer) {
+export module storage_buffer;
+
+import render_engine_shares;
+import image;
+
+export struct RE_Buffer {
+    size_t size = 0;
+    UID uid = 0;
+    bool host_accessible = false;
+    bool random_accessible = false;
+    vk::Buffer buffer {};
+    VmaAllocation allocation {};
+    vk::Semaphore* semaphore = nullptr;
+};
+
+export EXPORT_RE uint8_t *re_map_buffer(RE_pBuffer buffer) {
     auto *_buffer = static_cast<RE_Buffer *>(buffer);
 
     void *result;
@@ -27,222 +45,18 @@ EXPORT_RE uint8_t *re_map_buffer(RE_pBuffer buffer) {
     return static_cast<uint8_t *>(result);
 }
 
-EXPORT_RE void re_unmap_buffer(RE_pBuffer buffer) {
+export EXPORT_RE void re_unmap_buffer(RE_pBuffer buffer) {
     auto *_buffer = static_cast<RE_Buffer *>(buffer);
     vmaUnmapMemory(vma_allocator, _buffer->allocation);
 }
 
-EXPORT_RE uint64_t re_get_buffer_size(RE_pBuffer buffer) {
+export EXPORT_RE uint64_t re_get_buffer_size(RE_pBuffer buffer) {
     RE_Buffer *_buffer = static_cast<RE_Buffer *>(buffer);
 
     return _buffer->size;
 }
 
-EXPORT_RE void re_transfer_buffers(
-    RE_BufferToBufferTransfer *buffers_copies,
-    size_t num_buffers_copies,
-    RE_OperationEndCallback end_callback,
-    RE_CallbackContext context
-) {
-    vk::Device device = vkb_device.device;
-    vk::CommandBufferAllocateInfo cb_alloc_info{};
-    cb_alloc_info.commandBufferCount = 1;
-    cb_alloc_info.commandPool = vk_transfer_command_pool;
-    cb_alloc_info.level = vk::CommandBufferLevel::ePrimary;
-    vk::CommandBuffer command_buffer =
-            device.allocateCommandBuffers(
-                cb_alloc_info
-            )[0];
-
-    ResourceFrame rf{};
-
-    vk::CommandBufferBeginInfo cb_begin_info{};
-    cb_begin_info.flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit;
-
-    vk_pool_lock.lock();
-    command_buffer.begin(cb_begin_info);
-    vk_pool_lock.unlock();
-
-    for (size_t i = 0; i < num_buffers_copies; i++) {
-        RE_BufferToBufferTransfer buffer_copy = buffers_copies[i];
-        RE_Buffer *from = static_cast<RE_Buffer *>(buffer_copy.from_buffer);
-        RE_Buffer *to = static_cast<RE_Buffer *>(buffer_copy.to_buffer);
-
-        std::pair<RE_Buffer *, USAGE_TYPE> accesses[2]{};
-        accesses[0] = {from, T_READ};
-        accesses[1] = {to, T_WRITE};
-
-        process_buffers_sync(
-            command_buffer,
-            &rf,
-            accesses,
-            2
-        );
-
-        record_buffers_transport(
-            command_buffer,
-            from,
-            to,
-            buffer_copy.size,
-            buffer_copy.from_index,
-            buffer_copy.to_index
-        );
-
-        rf.needed_semaphores.insert(&from->semaphore);
-        rf.needed_semaphores.insert(&to->semaphore);
-    }
-
-    vk_pool_lock.lock();
-    command_buffer.end();
-    vk_pool_lock.unlock();
-
-    auto new_semaphores = get_semaphores(&rf);
-
-    vk::Queue queue = vkb_device.get_queue(vkb::QueueType::graphics).value();
-
-    vk::Fence fence = device.createFence(
-        vk::FenceCreateInfo{}
-    );
-
-    vk::SubmitInfo submit_info{};
-    submit_info.commandBufferCount = 1;
-    submit_info.pCommandBuffers = &command_buffer;
-    submit_info.waitSemaphoreCount = new_semaphores.second.first.size();
-    submit_info.pWaitSemaphores = new_semaphores.second.first.data();
-    submit_info.pWaitDstStageMask = new_semaphores.second.second.data();
-    submit_info.pSignalSemaphores = &new_semaphores.first;
-    submit_info.signalSemaphoreCount = 1;
-
-    vkb_device_lock.unlock();
-    queue.submit(submit_info, fence);
-    vkb_device_lock.unlock();
-
-    std::thread t([=]() {
-        vk::Fence _fence = fence;
-        device.waitForFences(_fence, true, UINT64_MAX);
-
-        vkb_device_lock.lock();
-        device.destroyFence(_fence);
-        auto _command_buffer = command_buffer;
-        vk_pool_lock.lock();
-        device.freeCommandBuffers(vk_transfer_command_pool, {_command_buffer});
-        vk_pool_lock.unlock();
-        vkb_device_lock.unlock();
-        if (end_callback) {
-            end_callback(context);
-        }
-    });
-
-
-    t.detach();
-}
-
-
-EXPORT_RE void re_transfer_buffer_to_image(
-    RE_pBuffer source_buffer,
-    RE_pImage target_image,
-    RE_OperationEndCallback end_callback,
-    RE_CallbackContext context
-) {
-    vk::Device device = vkb_device.device;
-    vk::CommandBufferAllocateInfo cb_alloc_info{};
-    cb_alloc_info.commandBufferCount = 1;
-    cb_alloc_info.commandPool = vk_transfer_command_pool;
-    cb_alloc_info.level = vk::CommandBufferLevel::ePrimary;
-    vk::CommandBuffer command_buffer =
-            device.allocateCommandBuffers(
-                cb_alloc_info
-            )[0];
-
-    ResourceFrame rf{};
-
-    vk::CommandBufferBeginInfo cb_begin_info{};
-    cb_begin_info.flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit;
-
-    vk_pool_lock.lock();
-    command_buffer.begin(cb_begin_info);
-    vk_pool_lock.unlock();
-
-    RE_Buffer *from = static_cast<RE_Buffer *>(source_buffer);
-    RE_Image *to = static_cast<RE_Image *>(target_image);
-
-    std::pair<RE_Buffer *, USAGE_TYPE> accesses{};
-    std::pair<RE_Image *, USAGE_TYPE> image_accesses{};
-    accesses = {from, T_READ};
-    image_accesses = {to, T_WRITE};
-
-    process_buffers_sync(
-        command_buffer,
-        &rf,
-        &accesses,
-        1
-    );
-
-    process_images_sync(
-        command_buffer,
-        &rf,
-        &image_accesses,
-        1
-    );
-
-    record_buffer_to_image_transport(
-        rf,
-        command_buffer,
-        from,
-        to
-    );
-
-    rf.needed_semaphores.insert(&from->semaphore);
-    rf.needed_semaphores.insert(&to->semaphore);
-
-    vk_pool_lock.lock();
-    command_buffer.end();
-    vk_pool_lock.unlock();
-
-    auto new_semaphores = get_semaphores(&rf);
-
-    vk::Queue queue = vkb_device.get_queue(vkb::QueueType::graphics).value();
-
-    vk::Fence fence = device.createFence(
-        vk::FenceCreateInfo{}
-    );
-
-    vk::SubmitInfo submit_info{};
-    submit_info.commandBufferCount = 1;
-    submit_info.pCommandBuffers = &command_buffer;
-    submit_info.waitSemaphoreCount = new_semaphores.second.first.size();
-    submit_info.pWaitSemaphores = new_semaphores.second.first.data();
-    submit_info.pWaitDstStageMask = new_semaphores.second.second.data();
-    submit_info.pSignalSemaphores = &new_semaphores.first;
-    submit_info.signalSemaphoreCount = 1;
-
-    vkb_device_lock.unlock();
-    queue.submit(submit_info, fence);
-    vkb_device_lock.unlock();
-
-    update_image_layouts(rf);
-
-    std::thread t([=]() {
-        vk::Fence _fence = fence;
-        device.waitForFences(_fence, true, UINT64_MAX);
-
-        vkb_device_lock.lock();
-        device.destroyFence(_fence);
-        auto _command_buffer = command_buffer;
-        vk_pool_lock.lock();
-        device.freeCommandBuffers(vk_transfer_command_pool, {_command_buffer});
-        vk_pool_lock.unlock();
-        vkb_device_lock.unlock();
-        if (end_callback) {
-            end_callback(context);
-        }
-    });
-
-
-    t.detach();
-}
-
-EXPORT_RE RE_pBuffer re_create_buffer(
+export EXPORT_RE RE_pBuffer re_create_buffer(
     size_t byte_size,
     bool host,
     bool random_access
@@ -309,13 +123,13 @@ struct Cache {
     const aiScene *scene = nullptr;
 };
 
-EXPORT_RE uint32_t re_get_model_mesh_count(
+export EXPORT_RE uint32_t re_get_model_mesh_count(
     void *cache
 ) {
     return static_cast<Cache *>(cache)->scene->mNumMeshes;
 }
 
-EXPORT_RE RE_pBuffer re_load_model_to_buffer(
+export EXPORT_RE RE_pBuffer re_load_model_to_buffer(
     const char *path,
     bool include_uv,
     bool include_normal,

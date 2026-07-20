@@ -13,20 +13,6 @@ typedef void* RE_CallbackContext;
 typedef void(*RE_OperationEndCallback)(RE_CallbackContext);
 #define EXPORT_RE extern "C"
 
-struct RE_BufferToBufferTransfer {
-    RE_pBuffer from_buffer;
-    RE_pBuffer to_buffer;
-    size_t from_index;
-    size_t to_index;
-    size_t size;
-};
-
-struct RE_RenderObject {
-    RE_pBuffer vertex_buffer;
-    uint32_t descriptor_set_count;
-    RE_pDescriptorSet *descriptor_sets;
-};
-
 //Initialisation
 EXPORT_RE void init_render_engine(
     GLFWwindow *window
@@ -138,6 +124,11 @@ EXPORT_RE void re_free_image(
     RE_pImage image
 );
 
+EXPORT_RE void re_transfer_image_to_image(
+    RE_ImageToImageTransfer* transfers,
+    uint32_t transfer_count
+);
+
 //Descriptor manipulation
 EXPORT_RE RE_pDescriptorPool re_create_descriptor_pool(
     RE_pShaderModule shader_module,
@@ -159,7 +150,10 @@ EXPORT_RE void re_write_set_buffers(
     RE_pDescriptorSet set,
     size_t write_count,
     const char **names,
-    RE_pBuffer *buffers
+    RE_pBuffer *buffers,
+
+    uint32_t* offsets,
+    uint32_t* sizes
 );
 
 EXPORT_RE void re_write_set_images(
@@ -168,8 +162,6 @@ EXPORT_RE void re_write_set_images(
     const char **names,
     RE_pImage *images
 );
-
-EXPORT_RE void re_display_image();
 
 //Sets must be in same descriptor pool
 EXPORT_RE void re_free_descriptor_sets(
@@ -198,7 +190,8 @@ EXPORT_RE void re_render(
     RE_RenderObject *render_objects,
 
 
-    RE_pImage *depth_image
+    RE_pImage *depth_image,
+    bool load_image
 );
 
 EXPORT_RE void re_present_image(

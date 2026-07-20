@@ -1,6 +1,5 @@
 
 StructuredBuffer<float4x4> matrix;
-RWTexture2D<float4> image;
 Sampler2D<float4> sampled_image;
 
 struct ShaderInput{
@@ -36,31 +35,8 @@ ShaderOutput vertex_shader(ShaderInput si){
 FragOut fragment_shader(FRAGInput fi){
     FragOut out = {};
 
-    out.tex1 = sampled_image.Sample(fi.uv);
+    float4 color = sampled_image.Sample(fi.uv);
+    out.tex1 = float4(pow(color.rgb, float3(1.0 / 2.2)), color.a);
 
     return out;
 }
-
-
-[shader("compute")]
-[numthreads(16,16,1)]
-void texture_test(uint3 id: SV_DispatchThreadID){
-    uint width;
-    uint height;
-
-    image.GetDimensions(width, height);
-
-    if(id.x >= width || id.y >= height){
-        return;
-    }
-
-    float2 samplexy = float2(float2((float)id.x / (float)width, (float)id.y / (float)height));
-
-    float4 uncorrected_color = sampled_image.Sample(samplexy);
-    //aprox_gamma_correct
-    float a = 1.0f/2.2f;
-    float4 corrected = pow(uncorrected_color, float4(a,a,a,1.0f));
-
-    image.Store(id.xy, corrected);
-}
-

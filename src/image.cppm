@@ -1,15 +1,37 @@
 //
 // Created by Роман  Тимофеев on 22.05.2026.
 //
+module;
+
 #include <render_engine.h>
 #include "export_macro.h"
 #include <vulkan/vulkan.hpp>
+#include <vk_mem_alloc.h>
+#include "uid.h"
 
-#include "image.h"
+export module image;
+import render_engine_shares;
 
-#include <thread>
+export struct RE_Image {
+    UID uid;
 
-#include "render_engine_shares.h"
+    uint32_t width;
+    uint32_t height;
+    vk::Format format;
+
+    bool is_swapchain = false;
+    uint32_t image_index;
+
+    vk::Image image;
+    vk::ImageView view;
+    vk::Sampler sampler;
+
+    VmaAllocation allocation;
+
+    vk::ImageLayout last_layout = vk::ImageLayout::eUndefined;
+
+    vk::Semaphore* semaphore = nullptr;
+};
 
 vk::Format image_format_re_to_vk(RE_IMAGE_FORMATS formats) {
     switch (formats) {
@@ -26,7 +48,7 @@ vk::Format image_format_re_to_vk(RE_IMAGE_FORMATS formats) {
     }
 }
 
-EXPORT_RE RE_pImage re_create_image(
+export EXPORT_RE RE_pImage re_create_image(
     uint32_t width,
     uint32_t height,
     RE_IMAGE_FORMATS format,
@@ -47,15 +69,14 @@ EXPORT_RE RE_pImage re_create_image(
         vk::ImageUsageFlagBits::eColorAttachment |
         vk::ImageUsageFlagBits::eSampled |
         vk::ImageUsageFlagBits::eTransferSrc |
-        vk::ImageUsageFlagBits::eTransferDst |
-        vk::ImageUsageFlagBits::eStorage;
+        vk::ImageUsageFlagBits::eTransferDst;
     }
 
     image_create_info.arrayLayers = 1;
+    image_create_info.mipLevels = 1;
     image_create_info.extent.width = width;
     image_create_info.extent.height = height;
     image_create_info.extent.depth = 1;
-    image_create_info.mipLevels = 1;
     image_create_info.imageType = vk::ImageType::e2D;
     image_create_info.initialLayout = vk::ImageLayout::eUndefined;
     image_create_info.samples = vk::SampleCountFlagBits::e1;
@@ -121,7 +142,7 @@ EXPORT_RE RE_pImage re_create_image(
     return new_image;
 }
 
-EXPORT_RE void re_get_image_dimensions(
+export EXPORT_RE void re_get_image_dimensions(
     RE_pImage image,
     uint32_t *width,
     uint32_t *height
@@ -131,7 +152,7 @@ EXPORT_RE void re_get_image_dimensions(
     *height = _image->height;
 }
 
-EXPORT_RE void re_free_image(
+export EXPORT_RE void re_free_image(
     RE_pImage image
 ) {
     auto* _image = reinterpret_cast<RE_Image *>(image);

@@ -2,14 +2,72 @@
 // Created by Роман  Тимофеев on 29.04.2026.
 //
 
-#include "shader_module.h"
-#include "render_engine_shares.h"
-#include "spirv_desc.h"
+module;
+
 #include <render_engine.h>
+#include <vulkan/vulkan.hpp>
+#include <unordered_map>
 
 #include <ranges>
 
+export module shader_module;
+import render_engine_shares;
+import spirv_analyser;
+
 #define EXPORT_RE extern "C"
+
+export struct RE_BasePipeline {
+    vk::Pipeline pipeline;
+};
+
+export struct RE_GraphicsPipeline {
+    RE_BasePipeline base_ppl;
+    std::vector<vk::VertexInputAttributeDescription> vertex_buffer_inputs;
+    size_t bytes_per_vertex;
+    size_t required_image_bindings;
+    bool depth_enable;
+};
+
+export struct RE_PoolInfo {
+    uint32_t storageBufferCount = 0;
+    uint32_t uniformBufferCount = 0;
+    uint32_t storageImageCount = 0;
+    uint32_t combinedImageCount = 0;
+};
+
+export struct RE_ShaderModule {
+    vk::ShaderModule module;
+    vk::PipelineLayout pipeline_layout;
+
+    std::unordered_map<uint32_t, vk::DescriptorSetLayout> set_layouts;
+
+    //stores bindings in pairs of set/binding
+    std::unordered_map<std::string, std::pair<uint32_t, std::pair<uint32_t, vk::DescriptorType> > > binding_names;
+
+    std::unordered_map
+    <
+        std::string,
+        std::vector<vk::VertexInputAttributeDescription>
+    > loaded_vertex_shaders{};
+
+    std::unordered_map
+    <
+        std::string,
+        size_t
+    > loaded_fragment_shaders{};
+
+    std::unordered_map<
+        std::string,
+        RE_BasePipeline
+    > registered_compute_pipelines;
+
+    std::unordered_map<
+        std::string,
+        RE_GraphicsPipeline
+    > registered_graphics_pipelines;
+
+    RE_PoolInfo pool_info{};
+};
 
 inline size_t vk_format_to_size(vk::Format format) {
     switch (format) {
@@ -26,7 +84,7 @@ inline size_t vk_format_to_size(vk::Format format) {
     }
 }
 
-std::vector<vk::DescriptorPoolSize> genPoolSizes(RE_PoolInfo poolInfo, size_t multiplier) {
+export std::vector<vk::DescriptorPoolSize> genPoolSizes(RE_PoolInfo poolInfo, size_t multiplier) {
     std::vector<vk::DescriptorPoolSize> poolSizes;
     poolSizes.reserve(4);
 
@@ -60,7 +118,7 @@ std::vector<vk::DescriptorPoolSize> genPoolSizes(RE_PoolInfo poolInfo, size_t mu
     return poolSizes;
 }
 
-EXPORT_RE RE_pShaderModule re_create_shader_module(
+export EXPORT_RE RE_pShaderModule re_create_shader_module(
     RE_pSpirVCode shader_code
 ) {
     auto *shader_module = new RE_ShaderModule();
@@ -137,11 +195,11 @@ EXPORT_RE RE_pShaderModule re_create_shader_module(
     uint64_t next_set = 0;
 
     for (auto &set: shader_module->set_layouts) {
-        if (next_set != set.first) {
+        /*if (next_set != set.first) {
             for (size_t i = next_set; i < set.first; i++) {
                 layouts.push_back(vk_empty_descriptor_set_layout);
             }
-        }
+        }*/
         layouts.push_back(shader_module->set_layouts[set.first]);
     }
 
@@ -199,13 +257,14 @@ EXPORT_RE RE_pShaderModule re_create_shader_module(
     return shader_module;
 }
 
-EXPORT_RE void re_register_render_pipeline(
+export EXPORT_RE void re_register_render_pipeline(
     RE_pShaderModule shader_module,
     const char *pipeline_name,
     const char *vertex_name,
     const char *fragment_name,
     bool depth
-) {
+)
+{
     auto *_shader_module = static_cast<RE_ShaderModule *>(shader_module);
 
     vk::PipelineShaderStageCreateInfo shader_stages[2] = {};
@@ -282,14 +341,12 @@ EXPORT_RE void re_register_render_pipeline(
     size_t color_output_count = _shader_module->loaded_fragment_shaders[fragment_name];
 
     auto color_blend_attachments =
-            std::ranges::to<std::vector<vk::PipelineColorBlendAttachmentState> >(
-                std::ranges::views::repeat(color_blend_state, color_output_count)
-            );
+                std::views::repeat(color_blend_state, color_output_count) |
+                    std::ranges::to<std::vector<vk::PipelineColorBlendAttachmentState>>();
 
     auto color_formats =
-        std::ranges::to<std::vector<vk::Format> >(
-            std::ranges::views::repeat(vk::Format::eR8G8B8A8Srgb, color_output_count)
-        );
+            std::views::repeat(vk::Format::eR8G8B8A8Srgb, color_output_count) |
+                std::ranges::to<std::vector<vk::Format>>();
 
     vk::PipelineColorBlendStateCreateInfo blend_ci{};
     blend_ci.pAttachments = color_blend_attachments.data();
@@ -331,7 +388,7 @@ EXPORT_RE void re_register_render_pipeline(
     _shader_module->registered_graphics_pipelines.insert({pipeline_name, gppl});
 }
 
-EXPORT_RE RE_pBuffer re_allocate_vertex_buffer(
+export EXPORT_RE RE_pBuffer re_allocate_vertex_buffer(
     RE_pShaderModule shader_module,
     const char* pipeline_name,
     uint32_t vertex_count
@@ -349,7 +406,7 @@ EXPORT_RE RE_pBuffer re_allocate_vertex_buffer(
     return new_buffer;
 }
 
-EXPORT_RE void re_free_shader_module(
+export EXPORT_RE void re_free_shader_module(
     RE_pShaderModule shader_module
 ) {
     auto *_shader_module = static_cast<RE_ShaderModule *>(shader_module);

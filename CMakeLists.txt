@@ -69,21 +69,33 @@ project(RenderEngineLIB)
 find_package(Vulkan REQUIRED COMPONENTS SPIRV-Tools)
 
 add_library(
-        RenderEngineLib
-        SHARED
+        RenderEngineLib SHARED
         src/render_engine.cpp
         src/vma_impl.cpp
-        src/spirv_tools.cpp
-        src/shader_module.cpp
-        src/synchronization.cpp
-        src/command_encoders.cpp
-        src/uid.h
-        src/storage_buffer.cpp
-        src/export_macro.h
-        src/descriptor_pool.cpp
-        src/dispatchers.cpp
-        src/image.cpp
         src/stb_image_impl.cpp
+        headers/lib/simple_draw.h
+)
+
+target_sources(
+        RenderEngineLib
+        PRIVATE
+        FILE_SET CXX_MODULES
+        FILES
+            src/dispatchers.cppm
+            src/synchronization.cppm
+            src/command_encoders.cppm
+            src/render_engine_shares.cppm
+            src/descriptor_pool.cppm
+            src/image.cppm
+            src/shader_module.cppm
+            src/spirv_tools.cppm
+            src/storage_buffer.cppm
+        FILE_SET HEADERS
+        FILES
+            headers/lib/simple_draw.h
+            headers/lib/spirv_tools.h
+            headers/lib/re_typedefs.h
+            headers/lib/render_engine.h
 )
 
 target_include_directories(
@@ -139,6 +151,27 @@ target_include_directories(
 
 target_link_libraries(
         RenderEngine
+
+        glm::glm
+        glfw
+        RenderEngineLib
+        ResourceLib
+)
+
+project(RenderEngineSimple)
+
+add_executable(
+        RenderEngineSimple
+        simple_draw_main.cpp
+)
+
+target_include_directories(
+        RenderEngineSimple
+        PRIVATE
+)
+
+target_link_libraries(
+        RenderEngineSimple
 
         glm::glm
         glfw

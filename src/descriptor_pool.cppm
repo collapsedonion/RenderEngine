@@ -1,15 +1,34 @@
 //
 // Created by Роман  Тимофеев on 18.05.2026.
 //
-#include "descriptor_pool.h"
+
+module;
 
 #include <render_engine.h>
-#include "render_engine_shares.h"
-#include "shader_module.h"
-#include "storage_buffer.h"
-
+#include <unordered_map>
+#include <vulkan/vulkan.hpp>
 #include "export_macro.h"
-#include "image.h"
+
+export module descriptor_pool;
+
+import shader_module;
+import render_engine_shares;
+import storage_buffer;
+import image;
+
+export struct RE_DescriptorPool {
+    vk::DescriptorPool descriptor_pool;
+    RE_ShaderModule* shader_module;
+    uint32_t set_layouts = 0;
+    uint32_t allocated_layouts = 0;
+};
+
+export struct RE_DescriptorSet {
+    vk::DescriptorSet descriptor_set;
+    size_t set_index = 0;
+    RE_DescriptorPool* pool;
+    std::unordered_map<uint32_t, std::pair<void*, vk::DescriptorType>> bind_resources = {};
+};
 
 bool isBufferType(vk::DescriptorType type) {
     return type == vk::DescriptorType::eUniformBuffer ||
@@ -115,7 +134,10 @@ EXPORT_RE void re_write_set_buffers(
     RE_pDescriptorSet set,
     size_t write_count,
     const char **names,
-    RE_pBuffer *buffers
+    RE_pBuffer *buffers,
+
+    uint32_t* offsets,
+    uint32_t* sizes
 ) {
     auto *shader_module_ptr = static_cast<RE_DescriptorSet *>(set)->pool->shader_module;
     auto *target_set = static_cast<RE_DescriptorSet *>(set);
@@ -146,7 +168,8 @@ EXPORT_RE void re_write_set_buffers(
 
         vk::DescriptorBufferInfo bufferInfo = {};
         bufferInfo.buffer = static_cast<RE_Buffer *>(buffers[i])->buffer;
-        bufferInfo.range = VK_WHOLE_SIZE;
+        bufferInfo.range = sizes == nullptr ? VK_WHOLE_SIZE : sizes[i];
+        bufferInfo.offset =  offsets == nullptr? 0: offsets[i];
 
         buffer_cache.push_back(bufferInfo);
 

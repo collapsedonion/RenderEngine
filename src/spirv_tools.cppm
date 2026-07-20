@@ -2,18 +2,55 @@
 // Created by Роман  Тимофеев on 28.04.2026.
 //
 
+module;
+
 #include <vector>
 #include <filesystem>
 #include <fstream>
 #include <format>
 #include <map>
+#include <unordered_map>
+#include <vulkan/vulkan.hpp>
 
 #include <spirv_reflect.h>
 #include <spirv_tools.h>
 
-#include "spirv_desc.h"
+export module spirv_analyser;
 
 #define EXPORT_RE extern "C"
+
+export enum RE_SPVShaderTypes {
+    RE_SPV_SHADER_COMPUTE,
+    RE_SPV_SHADER_VERTEX,
+    RE_SPV_SHADER_FRAGMENT,
+};
+
+export struct RE_SpvShader {
+    std::string name;
+    RE_SPVShaderTypes type;
+
+    std::unordered_map<uint32_t, std::vector<uint32_t>> sets;
+
+    std::vector<vk::VertexInputAttributeDescription> vertex_attributes;
+    size_t color_output_count;
+};
+
+export struct RE_SpvBinding {
+    std::string name;
+    vk::DescriptorType type;
+};
+
+export struct RE_SpvSet {
+    uint32_t set_index;
+    std::unordered_map<uint32_t, RE_SpvBinding> bindings;
+};
+
+export struct RE_SpirVCode {
+    std::vector<uint32_t> code {};
+
+    std::vector<RE_SpvShader> shaders {};
+    std::vector<RE_SpvSet> sets {};
+};
 
 inline size_t spv_reflect_format_to_size_t(
     SpvReflectFormat format
@@ -169,7 +206,7 @@ RE_SpvShader process_shader(
     return shader;
 }
 
-EXPORT_RE RE_pSpirVCode re_load_spirv_code(const char *path) {
+export EXPORT_RE RE_pSpirVCode re_load_spirv_code(const char *path) {
     std::filesystem::path path_to_code(path);
     std::ifstream ifs(path_to_code, std::ios::binary | std::ios::ate);
 
@@ -255,7 +292,7 @@ EXPORT_RE RE_pSpirVCode re_load_spirv_code(const char *path) {
     return newCode;
 }
 
-EXPORT_RE void re_free_spirv_code(RE_pSpirVCode code) {
+export EXPORT_RE void re_free_spirv_code(RE_pSpirVCode code) {
     auto *_code = reinterpret_cast<RE_SpirVCode *>(code);
 
     _code->code.clear();

@@ -10,27 +10,22 @@
 
 #define GLFW_INCLUDE_VULKAN
 #include <iostream>
+#include <ranges>
 #include <GLFW/glfw3.h>
 #include <vk_mem_alloc.h>
+#include "uid.h"
 
 #include <render_engine.h>
 #include <thread>
 
-#include "command_encoders.h"
-#include "synchronization.h"
-#include "storage_buffer.h"
-
 #include "export_macro.h"
-#include "image.h"
-#include "render_engine_shares.h"
 
-vkb::Instance vkb_instance;
-vkb::PhysicalDevice vkb_physical_device;
-vk::SurfaceKHR vk_surface;
-vkb::Device vkb_device;
-std::mutex vkb_device_lock{};
-vk::Queue vk_queue;
-vkb::Swapchain vkb_swap_chain;
+import command_encoders;
+import synchronization;
+import storage_buffer;
+import render_engine_shares;
+import image;
+
 std::vector<vk::Image> vk_swap_chain_images;
 std::vector<VkImageView> vk_swap_chain_views;
 std::vector<vk::Semaphore> vk_swap_chain_semaphores{};
@@ -38,14 +33,6 @@ std::vector<vk::Semaphore> vk_swap_chain_semaphores{};
 std::vector<RE_Image> re_swap_chain_images{};
 
 uint32_t next_image_semaphore = 0;
-
-VmaAllocator vma_allocator;
-
-vk::CommandPool vk_transfer_command_pool;
-vk::CommandPool vk_render_command_pool;
-std::mutex vk_pool_lock{};
-
-vk::DescriptorSetLayout vk_empty_descriptor_set_layout;
 
 inline void init_swap_chain(bool recreate = false) {
     const vk::SurfaceFormatKHR desired_format = {
@@ -58,7 +45,7 @@ inline void init_swap_chain(bool recreate = false) {
         vk_surface
     ).set_desired_format(desired_format);
 
-    swap_chain_builder.add_image_usage_flags(VK_IMAGE_USAGE_STORAGE_BIT);
+    swap_chain_builder.add_image_usage_flags(VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
 
     if (recreate) {
         swap_chain_builder.set_old_swapchain(vkb_swap_chain);
@@ -149,7 +136,7 @@ EXPORT_RE void init_render_engine(
             .set_app_name("Render Engine")
             .set_minimum_instance_version(1, 4)
             .enable_extensions(glfw_extension_count, glfw_extensions)
-            ;//.enable_validation_layers();
+            .enable_validation_layers();
 
     auto instance = instance_builder.build();
 
@@ -314,11 +301,11 @@ swap_chain_accssing:
     }
 
     if (id == -1) {
+        re_wait_device_free();
         init_swap_chain(true);
         populate_swapchain();
         goto swap_chain_accssing;
     }
-
 
     auto* image = &re_swap_chain_images[id];
     image->is_swapchain = true;
@@ -349,81 +336,20 @@ EXPORT_RE void re_present_image(
 
     vk::Device device = vkb_device.device;
 
-    vk::CommandBufferAllocateInfo command_buffer_allocate_info = {};
-    command_buffer_allocate_info.commandBufferCount = 1;
-    command_buffer_allocate_info.commandPool = vk_render_command_pool;
-    command_buffer_allocate_info.level = vk::CommandBufferLevel::ePrimary;
-
-    vk_pool_lock.lock();
-    auto cb = device.allocateCommandBuffers(command_buffer_allocate_info)[0];
-    vk_pool_lock.unlock();
-
-    auto command_buffer_begin_info = vk::CommandBufferBeginInfo{};
-    command_buffer_begin_info.flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit;
-
-    ResourceFrame rf = {};
-    std::pair<RE_Image *, USAGE_TYPE> sync = {_image, I_PRESENT};
-
-    vk_pool_lock.lock();
-    cb.begin(command_buffer_begin_info);
-    vk_pool_lock.unlock();
-    process_images_sync(
-        cb,
-        &rf,
-        &sync,
-        1
+    auto semaphore = ResourceFrame::transfer_images_layout(
+        std::views::single(std::pair{reinterpret_cast<RE_Image*>(image), I_PRESENT})
     );
-    vk_pool_lock.lock();
-    cb.end();
-    vk_pool_lock.unlock();
-
-    rf.needed_semaphores.insert(&_image->semaphore);
-
-    auto semaphores = get_semaphores(&rf);
-
-    vk::SubmitInfo submit_info = {};
-    submit_info.pWaitSemaphores = semaphores.second.first.data();
-    submit_info.pWaitDstStageMask = semaphores.second.second.data();
-    submit_info.waitSemaphoreCount = semaphores.second.second.size();
-    submit_info.pSignalSemaphores = &semaphores.first;
-    submit_info.signalSemaphoreCount = 1;
-    submit_info.commandBufferCount = 1;
-    submit_info.pCommandBuffers = &cb;
-
-    auto fence_create_info = vk::FenceCreateInfo{};
-
-    vkb_device_lock.lock();
-    auto fence = device.createFence(fence_create_info);
-    vk_queue.submit(submit_info, fence);
-    vkb_device_lock.unlock();
 
     vk::SwapchainKHR swapchain = vkb_swap_chain.swapchain;
 
     vk::PresentInfoKHR present_info = {};
     present_info.waitSemaphoreCount = 1;
-    present_info.pWaitSemaphores = &semaphores.first;
+    present_info.pWaitSemaphores = &semaphore;
     present_info.pSwapchains = &swapchain;
     present_info.swapchainCount = 1;
     present_info.pImageIndices = &_image->image_index;
 
     vkb_device_lock.lock();
-
-    auto free_call =
-        [=](bool wait) {
-            auto _fence = fence;
-            auto _cb = cb;
-            if (wait)
-            {
-                device.waitForFences({_fence}, true, UINT64_MAX);
-            }
-
-            vkb_device_lock.lock();
-            device.destroy(_fence);
-            vk_pool_lock.lock();
-            device.freeCommandBuffers(vk_render_command_pool, {_cb});
-            vk_pool_lock.unlock();
-            vkb_device_lock.unlock();
-    };
 
     try
     {
@@ -431,28 +357,17 @@ EXPORT_RE void re_present_image(
         if (result != vk::Result::eSuccess)
         {
             vkb_device_lock.unlock();
-            free_call(false);
             free_semaphore(_image->semaphore);
             return;
         }
     }catch (vk::OutOfDateKHRError& _)
     {
         vkb_device_lock.unlock();
-        free_call(false);
         free_semaphore(_image->semaphore);
         return;
     }
 
     vkb_device_lock.unlock();
 
-    update_image_layouts(rf);
-
     free_semaphore(_image->semaphore);
-
-    std::thread t = std::thread(
-       free_call,
-       true
-    );
-
-    t.detach();
 }
