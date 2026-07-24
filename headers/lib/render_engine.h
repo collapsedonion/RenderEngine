@@ -9,8 +9,6 @@
 #include <GLFW/glfw3.h>
 #include <re_typedefs.h>
 
-typedef void* RE_CallbackContext;
-typedef void(*RE_OperationEndCallback)(RE_CallbackContext);
 #define EXPORT_RE extern "C"
 
 //Initialisation

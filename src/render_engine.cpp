@@ -3,23 +3,17 @@
 //
 
 #include <VkBootstrap.h>
-#include <format>
-#include <print>
-#include <vulkan/vulkan.hpp>
-#include <mutex>
 
 #define GLFW_INCLUDE_VULKAN
-#include <iostream>
-#include <ranges>
 #include <GLFW/glfw3.h>
 #include <vk_mem_alloc.h>
 #include "uid.h"
-
-#include <render_engine.h>
-#include <thread>
+#include <re_typedefs.h>
 
 #include "export_macro.h"
 
+import std;
+import vulkan;
 import command_encoders;
 import synchronization;
 import storage_buffer;
@@ -258,6 +252,13 @@ EXPORT_RE void init_render_engine(
     );
 }
 
+EXPORT_RE void re_wait_device_free() {
+    vk::Device device = vkb_device.device;
+    vkb_device_lock.lock();
+    device.waitIdle();
+    vkb_device_lock.unlock();
+}
+
 EXPORT_RE void re_free_render_engine() {
     re_wait_device_free();
     free_semaphores();
@@ -268,12 +269,7 @@ EXPORT_RE void re_free_render_engine() {
     }
 }
 
-EXPORT_RE void re_wait_device_free() {
-    vk::Device device = vkb_device.device;
-    vkb_device_lock.lock();
-    device.waitIdle();
-    vkb_device_lock.unlock();
-}
+
 
 EXPORT_RE RE_pImage re_get_present_image() {
     vk::Device vk_device = vkb_device.device;

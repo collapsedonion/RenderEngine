@@ -1,111 +1,24 @@
 //
 // Created by Роман  Тимофеев on 04.05.2026.
 //
-
 module;
 
-#include <unordered_map>
-#include <vector>
 #include <cstdint>
-#include <vulkan/vulkan.hpp>
 
 export module synchronization;
-import render_engine_shares;
 
-constexpr uint32_t SEMAPHORES_COUNT = 32;
+export import vulkan;
+import std;
 
-struct LastAccessResource {
-    bool accessed = false;
-    std::vector<vk::Semaphore **> semaphore;
-};
+export void init_semaphores();
 
-vk::Semaphore allocated_semaphores[SEMAPHORES_COUNT] = {};
-LastAccessResource semaphores_resources[SEMAPHORES_COUNT] = {};
-std::pmr::unordered_map<vk::Semaphore *, uint32_t> semaphore_reverse_map{};
+export std::pair<vk::Semaphore, bool> get_next_semaphore(
+    uint32_t resource_count,
+    vk::Semaphore ***resource_field
+);
 
-uint32_t last_allocated;
+export bool is_waited(vk::Semaphore* semaphore);
 
-export void init_semaphores() {
-    last_allocated = SEMAPHORES_COUNT;
+export void free_semaphore(vk::Semaphore* semaphore);
 
-    vk::Device device = vkb_device.device;
-
-    for (uint32_t i = 0; i < SEMAPHORES_COUNT; i++) {
-        vk::SemaphoreCreateInfo info = {};
-
-        allocated_semaphores[i] = device.createSemaphore(
-            info
-        );
-
-        semaphores_resources[i] = {};
-
-        semaphore_reverse_map.insert({&allocated_semaphores[i], i});
-    }
-}
-
-export std::pair<vk::Semaphore, bool> get_next_semaphore(uint32_t resource_count, vk::Semaphore ***resource_field) {
-    if (last_allocated == 0) {
-        last_allocated = SEMAPHORES_COUNT;
-    }
-
-    vk::Semaphore *new_semaphore = &allocated_semaphores[--last_allocated];
-    auto &last_resource = semaphores_resources[last_allocated];
-    bool wait = false;
-
-    if (last_resource.accessed) {
-        for (auto &res: last_resource.semaphore) {
-            if (*res == new_semaphore) {
-                *res = nullptr;
-            }
-        }
-
-        last_resource.semaphore.clear();
-
-        wait = true;
-    }
-
-    last_resource.semaphore.resize(resource_count);
-
-    for (uint32_t i = 0; i < resource_count; i++) {
-        *resource_field[i] = &allocated_semaphores[last_allocated];
-        last_resource.semaphore[i] = resource_field[i];
-    }
-
-    last_resource.accessed = true;
-
-    return {*new_semaphore, wait};
-}
-
-void test_semaphores() {
-    std::vector<vk::Semaphore *> pseudo_resources;
-    std::vector<vk::Semaphore **> semaphores;
-    pseudo_resources.reserve(20);
-
-    for (uint32_t i = 0; i < 20; i++) {
-        pseudo_resources.push_back(nullptr);
-        semaphores.push_back(&pseudo_resources[i]);
-    }
-
-    get_next_semaphore(5, semaphores.data());
-    get_next_semaphore(5, semaphores.data() + 5);
-    get_next_semaphore(5, semaphores.data() + 10);
-    get_next_semaphore(5, semaphores.data() + 15);
-    get_next_semaphore(5, semaphores.data() + 5);
-}
-
-export bool is_waited(vk::Semaphore* semaphore) {
-   return semaphore_reverse_map.contains(semaphore) && !semaphores_resources[semaphore_reverse_map[semaphore]].accessed;
-}
-
-export void free_semaphore(vk::Semaphore* semaphore) {
-    if (semaphore_reverse_map.contains(semaphore)) {
-        semaphores_resources[semaphore_reverse_map[semaphore]].accessed = false;
-    }
-}
-
-export void free_semaphores() {
-    vk::Device device = vkb_device.device;
-    for (auto &allocated_semaphore: allocated_semaphores) {
-        device.destroy(allocated_semaphore);
-    }
-}
+export void free_semaphores();

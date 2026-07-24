@@ -3,12 +3,12 @@
 //
 
 module;
-#include <mutex>
-#include <vulkan/vulkan.hpp>
 #include <vk_mem_alloc.h>
 #include <VkBootstrap.h>
 
 export module render_engine_shares;
+export import vulkan;
+export import std;
 
 export vkb::Instance vkb_instance;
 export vkb::PhysicalDevice vkb_physical_device;

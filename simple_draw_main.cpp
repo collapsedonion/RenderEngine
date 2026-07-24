@@ -6,11 +6,16 @@
 #include <print>
 #include <GLFW/glfw3.h>
 #include <render_engine.h>
-#include <simple_draw.h>
 
 #include <vulkan/vulkan.hpp>
 
+import simple_draw;
+import scene2d;
+
 using namespace RenderEngine;
+
+const uint32_t HEIGHT = 600;
+const float RATIO = 1.33;
 
 int main()
 {
@@ -21,33 +26,39 @@ int main()
     //  glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
     auto window =
-        glfwCreateWindow(640, 480, "Render Engine", nullptr, nullptr);
+        glfwCreateWindow(RATIO * HEIGHT, HEIGHT, "Render Engine", nullptr, nullptr);
 
     init_render_engine(window);
     auto* simple_drawer = new SimpleDrawer(
         "./shaders/compiled/simple_draw.spv"
     );
 
-    simple_drawer->add_scene_2d(
+    simple_drawer->add_scene<Scene2D>(
         "test",
         [](Scene2D& scn)
         {
             scn
             .rect()
-            .color(Float3{0.8, 0.6, 0.0})
-            .size(Float2(0.5))
+            .color(Color{0.8, 0.6, 0.0})
+            .size(Float2(200))
             .position(Float2(0.0, 0.0));
 
             scn
             .triangle()
             .color(Float3{0.8, 0.0, 0.0})
-            .size(Float2(0.5))
-            .position(Float2(0.0, -0.5));
+            .size(Float2(200))
+            .position(Float2(0.0, -200));
+
+            scn
+            .circle()
+            .color(Float3{0,0,1.0f})
+            .size(Float2(200));
+
         }
     );
 
     RE_pImage draw_image = re_create_image(
-        1067,
+        800 * RATIO,
         800,
         RE_IMAGE_FORMAT_RGBA8,
         true,

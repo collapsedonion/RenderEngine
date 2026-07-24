@@ -5,6 +5,7 @@
 #ifndef RENDERENGINE_RE_TYPEDEFS_H
 #define RENDERENGINE_RE_TYPEDEFS_H
 #include <cstdint>
+#include <cstddef>
 
 enum RE_IMAGE_FORMATS {
     RE_IMAGE_FORMAT_R8,
@@ -48,5 +49,8 @@ struct RE_ImageToImageTransfer
     uint32_t to_width = 0;
     uint32_t to_height = 0;
 };
+
+typedef void* RE_CallbackContext;
+typedef void(*RE_OperationEndCallback)(RE_CallbackContext);
 
 #endif //RENDERENGINE_RE_TYPEDEFS_H
