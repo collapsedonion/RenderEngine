@@ -9,10 +9,16 @@ module;
 #include <vk_mem_alloc.h>
 #include "uid.h"
 
+#if defined(__APPLE__)
+#include <vulkan/vulkan.hpp>
+#endif
+
 module image;
 
+#if defined(__linux__)
 import vulkan;
 import std;
+#endif
 import render_engine_shares;
 
 vk::Format image_format_re_to_vk(RE_IMAGE_FORMATS formats) {

@@ -5,10 +5,17 @@ module;
 
 #include <cstdint>
 
+#if defined(__APPLE__)
+#include <utility>
+#include <vulkan/vulkan.hpp>
+#endif
+
 export module synchronization;
 
+#if defined(__linux__)
 export import vulkan;
 import std;
+#endif
 
 export void init_semaphores();
 

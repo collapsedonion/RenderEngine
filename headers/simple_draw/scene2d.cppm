@@ -5,10 +5,18 @@ module;
 #include <cstdint>
 #include <render_engine.h>
 
+#if defined(__APPLE__)
+#include <array>
+#include <ranges>
+#include <vector>
+#endif
+
 export module scene2d;
 export import simple_draw;
 export import setters;
+#if defined(__linux__)
 import std;
+#endif
 
 namespace RenderEngine
 {

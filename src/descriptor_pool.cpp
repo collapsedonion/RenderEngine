@@ -7,10 +7,20 @@ module;
 #include <re_typedefs.h>
 #include "export_macro.h"
 
+#if defined(__APPLE__)
+#include <optional>
+#include <stdexcept>
+#include <string>
+#include <vector>
+#include <vulkan/vulkan.hpp>
+#endif
+
 module descriptor_pool;
 
+#if defined(__linux__)
 import vulkan;
 import std;
+#endif
 import shader_module;
 import render_engine_shares;
 import storage_buffer;

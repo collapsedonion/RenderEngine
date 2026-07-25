@@ -4,10 +4,23 @@ module;
 
 #include "uid.h"
 
+#if defined(__APPLE__)
+#include <algorithm>
+#include <array>
+#include <mutex>
+#include <stdexcept>
+#include <string>
+#include <utility>
+#include <vector>
+#include <vulkan/vulkan.hpp>
+#endif
+
 module command_encoders;
 
+#if defined(__linux__)
 import vulkan;
 import std;
+#endif
 import descriptor_pool;
 import storage_buffer;
 import render_engine_shares;

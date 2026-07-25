@@ -6,10 +6,19 @@ module;
 
 #include <cstdint>
 
+#if defined(__APPLE__)
+#include <utility>
+#include <vector>
+#include <vulkan/vulkan.hpp>
+#include <unordered_map>
+#endif
+
 module synchronization;
 
+#if defined(__linux__)
 import vulkan;
 import std;
+#endif
 import render_engine_shares;
 
 constexpr uint32_t SEMAPHORES_COUNT = 32;
@@ -21,7 +30,7 @@ struct LastAccessResource {
 
 vk::Semaphore allocated_semaphores[SEMAPHORES_COUNT] = {};
 LastAccessResource semaphores_resources[SEMAPHORES_COUNT] = {};
-std::pmr::unordered_map<vk::Semaphore *, uint32_t> semaphore_reverse_map{};
+std::unordered_map<vk::Semaphore *, uint32_t> semaphore_reverse_map{};
 
 uint32_t last_allocated;
 

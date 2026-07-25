@@ -12,8 +12,21 @@
 
 #include "export_macro.h"
 
+#if defined(__APPLE__)
+#include <iostream>
+#include <format>
+#include <print>
+#include <ranges>
+#include <stdexcept>
+#include <utility>
+#include <vector>
+#include <vulkan/vulkan.hpp>
+#endif
+
+#if defined(__linux__)
 import std;
 import vulkan;
+#endif
 import command_encoders;
 import synchronization;
 import storage_buffer;

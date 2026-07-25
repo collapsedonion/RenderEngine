@@ -8,9 +8,18 @@ module;
 
 #define EXPORT_RE extern "C"
 
+#if defined(__APPLE__)
+#include <map>
+#include <string>
+#include <vector>
+#include <vulkan/vulkan.hpp>
+#endif
+
 export module spirv_analyser;
+#if defined(__linux__)
 export import vulkan;
 import std;
+#endif
 
 export enum RE_SPVShaderTypes {
     RE_SPV_SHADER_COMPUTE,

@@ -8,10 +8,22 @@ module;
 #include <VkBootstrap.h>
 #include "export_macro.h"
 
+#if defined(__APPLE__)
+#include <array>
+#include <span>
+#include <stdexcept>
+#include <string>
+#include <thread>
+#include <vector>
+#include <vulkan/vulkan.hpp>
+#endif
+
 module dispatchers;
 
+#if defined(__linux__)
 import vulkan;
 import std;
+#endif
 import command_encoders;
 import shader_module;
 import render_engine_shares;

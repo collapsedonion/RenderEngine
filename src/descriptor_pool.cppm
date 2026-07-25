@@ -7,9 +7,17 @@ module;
 #include <re_typedefs.h>
 #include "export_macro.h"
 
+#if defined(__APPLE__)
+#include <unordered_map>
+#include <utility>
+#include <vulkan/vulkan.hpp>
+#endif
+
 export module descriptor_pool;
+#if defined(__linux__)
 export import vulkan;
 import std;
+#endif
 import shader_module;
 
 export struct RE_DescriptorPool {
