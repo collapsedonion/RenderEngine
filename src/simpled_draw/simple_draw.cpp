@@ -5,6 +5,11 @@
 module;
 #include <render_engine.h>
 #include <spirv_tools.h>
+
+#if defined(__APPLE__)
+#include <span>
+#endif
+
 module simple_draw;
 
 namespace RenderEngine

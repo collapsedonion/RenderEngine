@@ -6,9 +6,16 @@ module;
 #include <vk_mem_alloc.h>
 #include <VkBootstrap.h>
 
+#if defined(__APPLE__)
+#include <mutex>
+#include <vulkan/vulkan.hpp>
+#endif
+
 export module render_engine_shares;
+#if defined(__linux__)
 export import vulkan;
 export import std;
+#endif
 
 export vkb::Instance vkb_instance;
 export vkb::PhysicalDevice vkb_physical_device;

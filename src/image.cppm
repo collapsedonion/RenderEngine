@@ -8,8 +8,14 @@ module;
 #include <vk_mem_alloc.h>
 #include "uid.h"
 
+#if defined(__APPLE__)
+#include <vulkan/vulkan.hpp>
+#endif
+
 export module image;
+#if defined(__linux__)
 export import vulkan;
+#endif
 
 export struct RE_Image {
     UID uid;

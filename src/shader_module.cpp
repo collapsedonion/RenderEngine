@@ -7,10 +7,19 @@ module;
 #include <re_typedefs.h>
 #define EXPORT_RE extern "C"
 
+#if defined(__APPLE__)
+#include <array>
+#include <ranges>
+#include <vector>
+#include <vulkan/vulkan.hpp>
+#endif
+
 module shader_module;
 
+#if defined(__linux__)
 import vulkan;
 import std;
+#endif
 import render_engine_shares;
 import spirv_analyser;
 import storage_buffer;

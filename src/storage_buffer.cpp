@@ -17,10 +17,18 @@ module;
 
 #include "export_macro.h"
 
+#if defined(__APPLE__)
+#include <array>
+#include <vector>
+#include <vulkan/vulkan.hpp>
+#endif
+
 module storage_buffer;
 
+#if defined(__linux__)
 import vulkan;
 import std;
+#endif
 import render_engine_shares;
 import image;
 

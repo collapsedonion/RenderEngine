@@ -8,9 +8,15 @@ module;
 #include "uid.h"
 #include "export_macro.h"
 
+#if defined(__APPLE__)
+#include <vulkan/vulkan.hpp>
+#endif
+
 export module storage_buffer;
 
+#if defined(__linux__)
 export import vulkan;
+#endif
 
 export struct RE_Buffer {
     size_t size = 0;

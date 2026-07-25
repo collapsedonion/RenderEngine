@@ -4,9 +4,23 @@
 module;
 
 #include "spirv_tools.h"
+
+#if defined(__APPLE__)
+#include <array>
+#include <cmath>
+#include <concepts>
+#include <functional>
+#include <numbers>
+#include <ranges>
+#include <string>
+#include <unordered_map>
+#endif
+
 export module simple_draw;
 export import shader_structures;
+#if defined(__linux__)
 import std;
+#endif
 
 namespace RenderEngine
 {

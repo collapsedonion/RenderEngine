@@ -7,9 +7,27 @@ module;
 
 #include "uid.h"
 
+#if defined(__APPLE__)
+#include <algorithm>
+#include <array>
+#include <concepts>
+#include <mutex>
+#include <ranges>
+#include <set>
+#include <span>
+#include <string>
+#include <thread>
+#include <unordered_map>
+#include <utility>
+#include <vector>
+#include <vulkan/vulkan.hpp>
+#endif
+
 export module command_encoders;
+#if defined(__linux__)
 export import vulkan;
 import std;
+#endif
 import descriptor_pool;
 import storage_buffer;
 import render_engine_shares;

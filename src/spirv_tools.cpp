@@ -9,10 +9,22 @@ module;
 
 #define EXPORT_RE extern "C"
 
+#if defined(__APPLE__)
+#include <filesystem>
+#include <format>
+#include <fstream>
+#include <map>
+#include <stdexcept>
+#include <vector>
+#include <vulkan/vulkan.hpp>
+#endif
+
 module spirv_analyser;
 
+#if defined(__linux__)
 import vulkan;
 import std;
+#endif
 
 inline size_t spv_reflect_format_to_size_t(
     SpvReflectFormat format

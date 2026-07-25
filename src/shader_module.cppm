@@ -8,9 +8,20 @@ module;
 
 #define EXPORT_RE extern "C"
 
+#if defined(__APPLE__)
+#include <map>
+#include <string>
+#include <unordered_map>
+#include <utility>
+#include <vector>
+#include <vulkan/vulkan.hpp>
+#endif
+
 export module shader_module;
+#if defined(__linux__)
 export import vulkan;
 import std;
+#endif
 
 export struct RE_BasePipeline {
     vk::Pipeline pipeline;
