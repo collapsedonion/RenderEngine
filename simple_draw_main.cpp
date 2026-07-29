@@ -11,6 +11,7 @@
 
 import simple_draw;
 import scene2d;
+import scene3d;
 
 using namespace RenderEngine;
 
@@ -33,27 +34,22 @@ int main()
         "./shaders/compiled/simple_draw.spv"
     );
 
-    simple_drawer->add_scene<Scene2D>(
+    auto& scene_3d = simple_drawer->add_scene<Scene3D>(
         "test",
-        [](Scene2D& scn)
+        [](Scene3D& scn)
         {
+            scn.init_resolution({800, 600});
             scn
-            .rect()
-            .color(Color{0.8, 0.6, 0.0})
-            .size(Float2(200))
-            .position(Float2(0.0, 0.0));
+                .add_item<Rectangle3D>()
+                .color(Color{0.8, 0.6, 0.0})
+                .position_matrix(Mat4x4::position({0, 0, -10.0f}))
+                .name("rect1");
 
             scn
-            .triangle()
-            .color(Float3{0.8, 0.0, 0.0})
-            .size(Float2(200))
-            .position(Float2(0.0, -200));
-
-            scn
-            .circle()
-            .color(Float3{0,0,1.0f})
-            .size(Float2(200));
-
+                .add_item<Rectangle3D>()
+                .color(Color{0.6, 0.8, 0.0})
+                .position_matrix(Mat4x4::position({.5, .5, 0}))
+                .name("rect2");
         }
     );
 
@@ -66,15 +62,36 @@ int main()
         false
     );
 
-    simple_drawer->render_scene_to_texture(
-        "test",
-        draw_image
-    );
+    auto rect_ptr = scene_3d.get_item_by_name("rect1");
+    auto rect_ptr2 = scene_3d.get_item_by_name("rect2");
+    rect_ptr2.lock()->set_parent(rect_ptr.lock());
+
+    auto previous = std::chrono::high_resolution_clock::now();
+
+    constexpr float freq = std::numbers::pi / 3.0;
+
+    float counter = 0.0;
 
     while (!glfwWindowShouldClose(window))
     {
         glfwPollEvents();
         RE_pImage target_img = re_get_present_image();
+
+        auto now = std::chrono::high_resolution_clock::now();
+        auto dt = std::chrono::duration_cast<std::chrono::duration<float>>(now - previous);
+        previous = now;
+
+        re_wait_device_free();
+
+        counter += dt.count();
+        rect_ptr.lock()->set_position_matrix(Mat4x4::position({
+            2 * std::sin(counter * freq), 2 * std::cos(counter * freq), -10.0f
+        }));
+
+        simple_drawer->render_scene_to_texture(
+            "test",
+            draw_image
+        );
 
         RE_ImageToImageTransfer itit{
             .from_image = draw_image,

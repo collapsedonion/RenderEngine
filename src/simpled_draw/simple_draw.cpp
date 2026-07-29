@@ -23,18 +23,18 @@ namespace RenderEngine
             RE_pBuffer stage_buffer;
         };
 
-        _vertex_buffers.rectangle = re_create_buffer(QUAD_VERTICES.size() * sizeof(Float2), false, false);
-        _vertex_buffers.triangle = re_create_buffer(TRIANGLE_VERTICES.size() * sizeof(Float2), false, false);
+        _vertex_buffers.rectangle = re_create_buffer(QUAD_VERTICES.size() * sizeof(Float3), false, false);
+        _vertex_buffers.triangle = re_create_buffer(TRIANGLE_VERTICES.size() * sizeof(Float3), false, false);
         auto circle_range = circle_vertices(.5f, 20);
 
-        _vertex_buffers.circle = re_create_buffer(circle_range.size() * sizeof(Float2), false, false);
+        _vertex_buffers.circle = re_create_buffer(circle_range.size() * sizeof(Float3), false, false);
         auto full_size = QUAD_VERTICES.size() + TRIANGLE_VERTICES.size() + circle_range.size();
 
         RE_pBuffer staging_buffer = re_create_buffer(
-            (full_size) * sizeof(Float2), true, false);
+            (full_size) * sizeof(Float3), true, false);
 
         {
-            auto staging_buffer_context = std::span(reinterpret_cast<Float2*>(re_map_buffer(staging_buffer)),
+            auto staging_buffer_context = std::span(reinterpret_cast<Float3*>(re_map_buffer(staging_buffer)),
                                                     full_size);
             std::ranges::copy(QUAD_VERTICES, staging_buffer_context.begin());
             std::ranges::copy(TRIANGLE_VERTICES, staging_buffer_context.begin() + QUAD_VERTICES.size());
@@ -58,14 +58,14 @@ namespace RenderEngine
             RE_BufferToBufferTransfer{
                 .from_buffer = staging_buffer,
                 .to_buffer = _vertex_buffers.triangle,
-                .from_index = QUAD_VERTICES.size() * sizeof(Float2),
+                .from_index = QUAD_VERTICES.size() * sizeof(Float3),
                 .to_index = 0,
                 .size = 0
             },
             RE_BufferToBufferTransfer{
                 .from_buffer = staging_buffer,
                 .to_buffer = _vertex_buffers.circle,
-                .from_index = (QUAD_VERTICES.size() + TRIANGLE_VERTICES.size()) * sizeof(Float2),
+                .from_index = (QUAD_VERTICES.size() + TRIANGLE_VERTICES.size()) * sizeof(Float3),
                 .to_index = 0,
                 .size = 0
             }
@@ -96,6 +96,13 @@ namespace RenderEngine
             DIRECT_2D_NAME.c_str(),
             COLORED_NAME.c_str(),
             false
+        );
+        re_register_render_pipeline(
+            _simple_shader,
+            TRANSFORMED_COLOR_NAME.c_str(),
+            TRANSFORMED_NAME.c_str(),
+            COLORED_NAME.c_str(),
+            true
         );
 
         populate_vertex_buffers();

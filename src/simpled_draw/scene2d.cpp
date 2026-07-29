@@ -106,53 +106,23 @@ Scene2D::~Scene2D()
 {
     re_free_descriptor_pool(descriptor_pool);
 
-    for (auto& rec : rectangles)
+    for (auto rec : items)
     {
-        rec.free(false);
-    }
-
-    for (auto& triangle : triangles)
-    {
-        triangle.free(false);
-    }
-
-    for (auto& circle : circles)
-    {
-        circle.free(false);
+        rec->free(false);
+        delete rec;
     }
 
     re_free_buffer(image_data);
 }
 
-Rectangle2D& Scene2D::rect()
-{
-    rectangles.push_back({});
-    rectangles.back().set_image_data_buffer(this->image_data);
-    return rectangles.back();
-}
-
-Triangle2D& Scene2D::triangle()
-{
-    triangles.push_back({});
-    triangles.back().set_image_data_buffer(this->image_data);
-    return triangles.back();
-}
-
-Circle2D& Scene2D::circle()
-{
-    circles.push_back({});
-    circles.back().set_image_data_buffer(this->image_data);
-    return circles.back();
-}
-
 void Scene2D::finalise(RE_pShaderModule module, const VertexBuffers& vertex_buffers)
 {
     descriptor_pool = re_create_descriptor_pool(
-        module, (rectangles.size() + triangles.size() + circles.size()) * 2
+        module, items.size() * 2
     );
-    render_objects.reserve(rectangles.size() + triangles.size() + circles.size());
+    render_objects.reserve(items.size());
 
-    for (auto* item : get_all_items())
+    for (auto* item : items)
     {
         render_objects.push_back(item->get_render_object(vertex_buffers, descriptor_pool));
     }

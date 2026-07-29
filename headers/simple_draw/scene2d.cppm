@@ -227,42 +227,24 @@ namespace RenderEngine
 
     class Scene2D : public Scene
     {
-        std::vector<Rectangle2D> rectangles = {};
-        std::vector<Triangle2D> triangles = {};
-        std::vector<Circle2D> circles = {};
+        std::vector<SimpleColored2DItem*> items = {};
 
         std::vector<RE_RenderObject> render_objects = {};
         RE_pDescriptorPool descriptor_pool = {};
         RE_pBuffer image_data = {};
 
-        // Returns auto — must stay in header
-        auto get_all_items()
-        {
-            auto rects = rectangles | std::views::transform([](Rectangle2D& rect)
-            {
-                return dynamic_cast<SceneItem*>(&rect);
-            });
-
-            auto triang = triangles | std::views::transform([](auto& triangle)
-            {
-                return dynamic_cast<SceneItem*>(&triangle);
-            });
-
-            auto circ = circles | std::views::transform([](auto& circ)
-            {
-                return dynamic_cast<SceneItem*>(&circ);
-            });
-
-            return std::views::concat(rects, triang, circ);
-        }
-
     public:
         Scene2D();
         ~Scene2D() override;
 
-        Rectangle2D& rect();
-        Triangle2D& triangle();
-        Circle2D& circle();
+        template<typename T>
+        requires std::derived_from<T, SimpleColored2DItem>
+        T& add_item()
+        {
+            items.push_back(new T{});
+            items.back()->set_image_data_buffer(this->image_data);
+            return dynamic_cast<T&>(*items.back());
+        }
 
     protected:
         void finalise(RE_pShaderModule module, const VertexBuffers& vertex_buffers) override;

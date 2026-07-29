@@ -333,7 +333,7 @@ public:
             }
         }
 
-        for (auto& render_object : render_objects)
+        for (RE_RenderObject& render_object : render_objects)
         {
             RE_Buffer* buffer = static_cast<RE_Buffer*>(render_object.vertex_buffer);
             std::pair<RE_Buffer*, USAGE_TYPE> buffer_usage = {buffer, G_VERTEX};
@@ -350,15 +350,20 @@ public:
             {
                 std::lock_guard<std::recursive_mutex> pool_guard(vk_pool_lock);
                 command_buffers[2].bindVertexBuffers(0, 1, &buffer->buffer, &offset);
-                command_buffers[2].bindDescriptorSets(
-                    vk::PipelineBindPoint::eGraphics,
-                    shader_module->pipeline_layout,
-                    0,
-                    vk_sets.size(),
-                    vk_sets.data(),
-                    0,
-                    nullptr
-                );
+                for (auto& set : std::span(render_object.descriptor_sets, render_object.descriptor_set_count))
+                {
+                    auto* _set = reinterpret_cast<RE_DescriptorSet*>(set);
+
+                    command_buffers[2].bindDescriptorSets(
+                        vk::PipelineBindPoint::eGraphics,
+                        shader_module->pipeline_layout,
+                        _set->set_index,
+                        1,
+                        &_set->descriptor_set,
+                        0,
+                        nullptr
+                    );
+                }
                 command_buffers[2].draw(buffer->size / ppl.bytes_per_vertex, 1, 0, 0);
             }
         }

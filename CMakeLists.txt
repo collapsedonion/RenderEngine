@@ -59,6 +59,15 @@ FetchContent_Declare(
 # that harmless redefinition into a hard build failure.
 set(ASSIMP_WARNINGS_AS_ERRORS OFF CACHE BOOL "" FORCE)
 
+# Arch Linux's system `minizip` package installs its headers under
+# /usr/include/minizip/ (e.g. minizip/unzip.h), but assimp's
+# ZipArchiveIOSystem.cpp does `#include <unzip.h>` with no subdirectory,
+# and minizip's pkg-config file only exports `-I/usr/include`. That mismatch
+# makes assimp fail to find unzip.h when it links against the system
+# zlib/minizip. Building assimp's bundled zlib+minizip instead sidesteps the
+# incompatible system layout.
+set(ASSIMP_BUILD_ZLIB ON CACHE BOOL "" FORCE)
+
 FetchContent_MakeAvailable(assimp)
 
 FetchContent_Declare(
@@ -210,6 +219,7 @@ add_library(
         SHARED
         src/simpled_draw/simple_draw.cpp
         src/simpled_draw/scene2d.cpp
+        src/simpled_draw/scene3d.cpp
 )
 
 target_sources(
@@ -218,6 +228,7 @@ target_sources(
         FILE_SET CXX_MODULES
         FILES
             headers/simple_draw/scene2d.cppm
+            headers/simple_draw/scene3d.cppm
             headers/simple_draw/simple_draw.cppm
             headers/simple_draw/shader_structures.cppm
             headers/simple_draw/setters.cppm
