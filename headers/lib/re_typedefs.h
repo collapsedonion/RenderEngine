@@ -15,6 +15,9 @@ enum RE_IMAGE_FORMATS {
     RE_IMAGE_FORMAT_DEPTH
 };
 
+/*
+ * All objects in RenderEngine are manged by hand, use should manually call free functions when needed
+ */
 typedef void* RE_pBuffer;
 typedef void* RE_pSpirVCode;
 typedef void* RE_pShaderModule;
@@ -22,6 +25,9 @@ typedef void* RE_pDescriptorPool;
 typedef void* RE_pDescriptorSet;
 typedef void* RE_pImage;
 
+/**
+ * If size is 0 then all it will be set to minimal from two buffers.
+ */
 struct RE_BufferToBufferTransfer {
     RE_pBuffer from_buffer;
     RE_pBuffer to_buffer;
@@ -36,6 +42,7 @@ struct RE_RenderObject {
     RE_pDescriptorSet *descriptor_sets;
 };
 
+//Zero width/height will set them as minimal from both images.
 struct RE_ImageToImageTransfer
 {
     RE_pImage from_image;

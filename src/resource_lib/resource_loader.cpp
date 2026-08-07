@@ -234,7 +234,7 @@ EXPORT_R void rm_free_images() {
         re_free_image(image.second);
     }
 
-    r_loaded_models.clear();
+    r_loaded_images.clear();
 }
 
 EXPORT_R void rm_free_resource_manager() {

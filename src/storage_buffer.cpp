@@ -263,11 +263,11 @@ EXPORT_RE RE_pBuffer re_load_image_to_buffer(
 
     for (uint32_t y = 0; y < height; y++) {
         for (uint32_t x = 0; x < width; x++) {
-            uint32_t raw_index = x + y * width;
-            uint32_t r = raw_index * 4;
-            uint32_t g = raw_index * 4 + 1;
-            uint32_t b = raw_index * 4 + 2;
-            uint32_t a = raw_index * 4 + 3;
+            const uint32_t raw_index = x + y * width;
+            const uint32_t r = raw_index * 4;
+            const uint32_t g = raw_index * 4 + 1;
+            const uint32_t b = raw_index * 4 + 2;
+            const uint32_t a = raw_index * 4 + 3;
 
             buffer_data[r] = image_data[r];
             buffer_data[g] = image_data[g];
@@ -280,8 +280,14 @@ EXPORT_RE RE_pBuffer re_load_image_to_buffer(
 
     stbi_image_free(image_data);
 
-    *_width = width;
-    *_height = height;
+    if (_width != nullptr)
+    {
+        *_width = width;
+    }
+    if (_height != nullptr)
+    {
+        *_height = height;
+    }
 
     return buffer;
 }
