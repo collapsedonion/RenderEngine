@@ -28,12 +28,14 @@ export module command_encoders;
 export import vulkan;
 import std;
 #endif
-import descriptor_pool;
-import storage_buffer;
+import Buffer;
+import Image;
+import DescriptorPool;
+import ShaderModule;
+import RenderObject;
 import render_engine_shares;
 import synchronization;
-import shader_module;
-import image;
+import Transporters;
 
 export enum USAGE_TYPE
 {
@@ -104,6 +106,8 @@ inline vk::AccessFlags2 getImageAccessBits(
     default:
         break;
     }
+
+    return {};
 }
 
 inline vk::ImageLayout getImageLayout(
@@ -129,29 +133,31 @@ inline vk::ImageLayout getImageLayout(
     case G_DEPTH:
         return vk::ImageLayout::eDepthAttachmentOptimal;
     }
+
+    return  vk::ImageLayout::eUndefined;
 }
 
 export class ResourceFrame
 {
     std::unordered_map<UID, USAGE_TYPE> used_buffers = {};
     //Usage type, changed layout
-    std::unordered_map<RE_Image*, std::pair<USAGE_TYPE, vk::ImageLayout>> used_images = {};
+    std::unordered_map<RenderEngine::Image*, std::pair<USAGE_TYPE, vk::ImageLayout>> used_images = {};
 
     std::set<vk::Semaphore**> needed_semaphores = {};
 
 public:
     vk::ImageLayout get_image_actual_image_layout(
-        RE_Image* pImage
+        RenderEngine::Image* pImage
     );
 
     void record_buffers_transport(
         vk::CommandBuffer command_buffer,
-        const RE_BufferToBufferTransfer& transfer
+        const RenderEngine::BufferToBufferInfo& transfer
     );
 
     void record_compute_shader_submit(
         vk::CommandBuffer command_buffer,
-        RE_ShaderModule* shader_module,
+        RenderEngine::ShaderModule* shader_module,
         const std::string& shader_name,
         size_t descriptor_set_count,
         vk::DescriptorSet* descriptor_sets,
@@ -165,50 +171,50 @@ public:
         std::pair<std::vector<vk::Semaphore>, std::vector<vk::PipelineStageFlags>>
     > get_semaphores();
 
-    template <std::ranges::sized_range I>
-        requires std::convertible_to<std::ranges::range_value_t<I>, RE_DescriptorSet*>
+    template <std::ranges::input_range I>
+        requires std::convertible_to<std::ranges::range_value_t<I>, RenderEngine::DescriptorPool::DescriptorSet*>
     std::vector<vk::DescriptorSet> extractDescriptorSets(
         vk::CommandBuffer command_buffer,
         I descriptor_sets
     )
     {
         std::vector<vk::DescriptorSet> _descriptor_sets;
-        _descriptor_sets.reserve(std::ranges::size(descriptor_sets));
-        std::vector<std::pair<RE_Image*, USAGE_TYPE>> images_to_sync{};
+        std::vector<std::pair<RenderEngine::Image*, USAGE_TYPE>> images_to_sync{};
 
-        for (RE_DescriptorSet* descriptor_set : descriptor_sets)
+        for (RenderEngine::DescriptorPool::DescriptorSet* descriptor_set : descriptor_sets)
         {
-            for (auto& resource : descriptor_set->bind_resources)
+            for (
+                auto& [_, res] :
+                descriptor_set->get_bound_resources())
             {
-                switch (resource.second.second)
+                auto [resource, type] = res;
+                switch (type)
                 {
                 case vk::DescriptorType::eUniformBuffer:
                     {
-                        auto* _buffer = static_cast<RE_Buffer*>(resource.second.first);
-                        this->used_buffers[_buffer->uid] = USAGE_TYPE::C_UNIFORM;
-                        this->needed_semaphores.insert(&_buffer->semaphore);
+                        this->used_buffers[resource->get_uid()] = USAGE_TYPE::C_UNIFORM;
                         break;
                     }
                 case vk::DescriptorType::eStorageBuffer:
                     {
-                        auto* _buffer = static_cast<RE_Buffer*>(resource.second.first);
-                        this->used_buffers[_buffer->uid] = USAGE_TYPE::C_STORAGE;
-                        this->needed_semaphores.insert(&_buffer->semaphore);
+                        this->used_buffers[resource->get_uid()] = USAGE_TYPE::C_STORAGE;
                         break;
                     }
                 case vk::DescriptorType::eStorageImage:
                     {
-                        auto* _image = static_cast<RE_Image*>(resource.second.first);
-                        images_to_sync.push_back({_image, USAGE_TYPE::C_STORAGE});
-                        this->needed_semaphores.insert(&_image->semaphore);
+                        if (auto* image = dynamic_cast<RenderEngine::Image*>(resource))
+                        {
+                            images_to_sync.emplace_back(image, USAGE_TYPE::C_STORAGE);
+                        }
                         break;
                     }
 
                 case vk::DescriptorType::eCombinedImageSampler:
                     {
-                        auto* _image = static_cast<RE_Image*>(resource.second.first);
-                        images_to_sync.push_back({_image, USAGE_TYPE::I_SAMPLED});
-                        this->needed_semaphores.insert(&_image->semaphore);
+                        if (auto* image = dynamic_cast<RenderEngine::Image*>(resource))
+                        {
+                            images_to_sync.emplace_back(image, USAGE_TYPE::I_SAMPLED);
+                        }
                         break;
                     }
 
@@ -216,9 +222,10 @@ public:
 
                     break;
                 }
+                this->needed_semaphores.insert(resource->get_semaphore_ref());
             }
 
-            _descriptor_sets.push_back(descriptor_set->descriptor_set);
+            _descriptor_sets.push_back(descriptor_set->get_set());
         }
 
         process_images_sync(
@@ -234,23 +241,23 @@ public:
     // command_buffers: [0]=primary, [1]=secondary_sync, [2]=secondary_draw
     template <
         std::ranges::random_access_range CB,
-        std::ranges::sized_range TI,
-        std::ranges::forward_range RO
+        std::ranges::input_range TI,
+        std::ranges::input_range RO
     >
         requires std::same_as<std::ranges::range_value_t<CB>, vk::CommandBuffer>
-        && std::convertible_to<std::ranges::range_value_t<TI>, RE_Image*>
-        && std::same_as<std::ranges::range_value_t<RO>, RE_RenderObject>
+        && std::convertible_to<std::ranges::range_value_t<TI>, RenderEngine::Image*>
+        && std::same_as<std::ranges::range_value_t<RO>, RenderEngine::RenderObject>
     void record_render(
         CB command_buffers,
-        RE_ShaderModule* shader_module,
+        RenderEngine::ShaderModule* shader_module,
         const std::string& pipeline_name,
         TI target_images,
         RO render_objects,
-        RE_Image* depth_image,
+        RenderEngine::Image* depth_image,
         bool load_image
     )
     {
-        auto& ppl = shader_module->registered_graphics_pipelines[pipeline_name];
+        auto pl = shader_module->get_graphics_pipeline(pipeline_name);
 
         vk::CommandBufferBeginInfo begin_info{};
         begin_info.flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit;
@@ -269,16 +276,15 @@ public:
         uint32_t height = UINT32_MAX;
 
         std::vector<vk::RenderingAttachmentInfo> attachments;
-        std::vector<std::pair<RE_Image*, USAGE_TYPE>> sync_images{};
-        sync_images.reserve(std::ranges::size(target_images));
+        std::vector<std::pair<RenderEngine::Image*, USAGE_TYPE>> sync_images{};
 
-        for (RE_Image* image : target_images)
+        for (RenderEngine::Image* image : target_images)
         {
-            sync_images.push_back({image, G_RENDER});
-            height = std::min(height, image->height);
-            width = std::min(width, image->width);
+            sync_images.emplace_back(image, G_RENDER);
+            height = std::min(height, image->height());
+            width = std::min(width, image->width());
             vk::RenderingAttachmentInfo attachment_info{};
-            attachment_info.imageView = image->view;
+            attachment_info.imageView = image->get_view();
             attachment_info.imageLayout = vk::ImageLayout::eColorAttachmentOptimal;
             attachment_info.loadOp = load_image ? vk::AttachmentLoadOp::eLoad : vk::AttachmentLoadOp::eClear;
             attachment_info.storeOp = vk::AttachmentStoreOp::eStore;
@@ -288,14 +294,14 @@ public:
 
         vk::RenderingAttachmentInfo depth_attachment_info{};
 
-        if (ppl.depth_enable)
+        if (depth_image)
         {
-            sync_images.push_back({depth_image, G_DEPTH});
+            sync_images.emplace_back(depth_image, G_DEPTH);
             rendering_info.pDepthAttachment = &depth_attachment_info;
             depth_attachment_info.loadOp = vk::AttachmentLoadOp::eClear;
             depth_attachment_info.storeOp = vk::AttachmentStoreOp::eStore;
             depth_attachment_info.imageLayout = vk::ImageLayout::eDepthAttachmentOptimal;
-            depth_attachment_info.imageView = depth_image->view;
+            depth_attachment_info.imageView = depth_image->get_view();
             depth_attachment_info.clearValue.depthStencil = vk::ClearDepthStencilValue(1.0, 0);
         }
 
@@ -311,7 +317,7 @@ public:
         {
             std::lock_guard<std::recursive_mutex> pool_guard(vk_pool_lock);
             command_buffers[2].beginRendering(rendering_info);
-            command_buffers[2].bindPipeline(vk::PipelineBindPoint::eGraphics, ppl.base_ppl.pipeline);
+            command_buffers[2].bindPipeline(vk::PipelineBindPoint::eGraphics, pl);
         }
 
         {
@@ -333,38 +339,38 @@ public:
             }
         }
 
-        for (RE_RenderObject& render_object : render_objects)
+        for (RenderEngine::RenderObject& render_object : render_objects)
         {
-            RE_Buffer* buffer = static_cast<RE_Buffer*>(render_object.vertex_buffer);
-            std::pair<RE_Buffer*, USAGE_TYPE> buffer_usage = {buffer, G_VERTEX};
+            auto& buffer = render_object.vertex_buffer;
+            auto buffer_usage = std::pair{buffer.get(), G_VERTEX};
             process_buffers_sync(command_buffers[1], std::views::single(buffer_usage));
 
             std::vector<vk::DescriptorSet> vk_sets = extractDescriptorSets(
                 command_buffers[1],
-                std::span(reinterpret_cast<RE_DescriptorSet**>(render_object.descriptor_sets),
-                          render_object.descriptor_set_count)
+                std::views::all(render_object.sets) | std::views::transform([](std::weak_ptr<RenderEngine::DescriptorPool::DescriptorSet> set){return set.lock().get();})
             );
 
             vk::DeviceSize offset = 0;
 
             {
                 std::lock_guard<std::recursive_mutex> pool_guard(vk_pool_lock);
-                command_buffers[2].bindVertexBuffers(0, 1, &buffer->buffer, &offset);
-                for (auto& set : std::span(render_object.descriptor_sets, render_object.descriptor_set_count))
+                auto buff = buffer->get_raw_buffer();
+                command_buffers[2].bindVertexBuffers(0, 1, &buff, &offset);
+                for (auto& set : render_object.sets)
                 {
-                    auto* _set = reinterpret_cast<RE_DescriptorSet*>(set);
-
+                    auto _set = set.lock();
+                    auto _vk_set = _set->get_set();
                     command_buffers[2].bindDescriptorSets(
                         vk::PipelineBindPoint::eGraphics,
-                        shader_module->pipeline_layout,
-                        _set->set_index,
+                        shader_module->get_pipeline_layout(),
+                        _set->get_index(),
                         1,
-                        &_set->descriptor_set,
+                        &_vk_set,
                         0,
                         nullptr
                     );
                 }
-                command_buffers[2].draw(buffer->size / ppl.bytes_per_vertex, 1, 0, 0);
+                command_buffers[2].draw(buffer->size() / shader_module->get_pipeline_vertex_size(pipeline_name), 1, 0, 0);
             }
         }
 
@@ -380,12 +386,12 @@ public:
 
     void record_buffer_to_image_transport(
         vk::CommandBuffer command_buffer,
-        RE_Buffer* from_buffer,
-        RE_Image* to_image
+        RenderEngine::RawBuffer* from_buffer,
+        RenderEngine::Image* to_image
     );
 
     template <std::ranges::input_range I>
-        requires std::convertible_to<std::ranges::range_value_t<I>, std::pair<RE_Image*, USAGE_TYPE>>
+        requires std::convertible_to<std::ranges::range_value_t<I>, std::pair<RenderEngine::Image*, USAGE_TYPE>>
     static vk::Semaphore transfer_images_layout(
         I images
     )
@@ -446,7 +452,7 @@ public:
                 auto _cb = cb;
                 if (wait)
                 {
-                    device.waitForFences({_fence}, true, UINT64_MAX);
+                    auto _ = device.waitForFences({_fence}, true, UINT64_MAX);
                 }
 
                 vkb_device_lock.lock();
@@ -466,8 +472,8 @@ public:
 
     void record_image_transport(
         vk::CommandBuffer command_buffer,
-        RE_Image* src_image,
-        RE_Image* dst_image,
+        RenderEngine::Image* src_image,
+        RenderEngine::Image* dst_image,
         std::pair<uint32_t, uint32_t> src_offset,
         std::pair<uint32_t, uint32_t> src_size,
         std::pair<uint32_t, uint32_t> dst_offset,
@@ -476,7 +482,7 @@ public:
 
 private:
     template <std::ranges::forward_range I>
-        requires std::convertible_to<std::ranges::range_value_t<I>, std::pair<RE_Buffer*, USAGE_TYPE>>
+        requires std::convertible_to<std::ranges::range_value_t<I>, std::pair<RenderEngine::RawBuffer*, USAGE_TYPE>>
     void process_buffers_sync(
         vk::CommandBuffer command_buffer,
         I buffers //buffer, new usage
@@ -484,36 +490,38 @@ private:
     {
         std::vector<vk::BufferMemoryBarrier2> barriers{};
 
-        for (const std::pair<RE_Buffer*, USAGE_TYPE>& buffer : buffers)
+        for (const std::pair<RenderEngine::RawBuffer*, USAGE_TYPE>& buff : buffers)
         {
-            if (!this->used_buffers.contains(buffer.first->uid))
+            auto [buffer, usage_type] = buff;
+
+            if (!this->used_buffers.contains(buffer->get_uid()))
             {
-                this->used_buffers.insert({buffer.first->uid, buffer.second});
+                this->used_buffers.insert({buffer->get_uid(), usage_type});
             }
 
-            auto& used_buffer = this->used_buffers[buffer.first->uid];
+            auto& used_buffer = this->used_buffers[buffer->get_uid()];
 
-            if (buffer.second == T_READ && used_buffer == buffer.second)
+            if (usage_type == T_READ && used_buffer == usage_type)
             {
                 continue;
             }
 
             vk::BufferMemoryBarrier2 barrier = {};
 
-            barrier.buffer = buffer.first->buffer;
+            barrier.buffer = buffer->get_raw_buffer();
             barrier.offset = 0;
             barrier.size = vk::WholeSize;
             barrier.srcStageMask = vk::PipelineStageFlagBits2::eAllCommands;
             barrier.dstStageMask = vk::PipelineStageFlagBits2::eAllCommands;
 
             barrier.srcAccessMask = getAccessBits(used_buffer);
-            barrier.dstAccessMask = getAccessBits(buffer.second);
+            barrier.dstAccessMask = getAccessBits(usage_type);
 
-            this->used_buffers[buffer.first->uid] = buffer.second;
+            this->used_buffers[buffer->get_uid()] = usage_type;
 
             barriers.push_back(barrier);
 
-            this->needed_semaphores.insert(&buffer.first->semaphore);
+            this->needed_semaphores.insert(buffer->get_semaphore_ref());
         }
 
         vk::DependencyInfo dp_info = {};
@@ -528,7 +536,7 @@ private:
 
 
     template <std::ranges::input_range I>
-        requires std::convertible_to<std::ranges::range_value_t<I>, std::pair<RE_Image*, USAGE_TYPE>>
+        requires std::convertible_to<std::ranges::range_value_t<I>, std::pair<RenderEngine::Image*, USAGE_TYPE>>
     void process_images_sync(
         vk::CommandBuffer command_buffer,
         I images
@@ -536,19 +544,21 @@ private:
     {
         std::vector<vk::ImageMemoryBarrier2> barriers{};
 
-        for (const std::pair<RE_Image*, USAGE_TYPE>& image : images)
+        for (const std::pair<RenderEngine::Image*, USAGE_TYPE>& image : images)
         {
+            auto [img, type] = image;
+
             if (!this->used_images.contains(image.first))
             {
-                this->used_images.insert({image.first, {image.second, image.first->last_layout}});
+                this->used_images.insert({image.first, {image.second, *img->get_layout_ptr()}});
             }
 
             auto& used_image = this->used_images[image.first];
 
             vk::ImageMemoryBarrier2 barrier = {};
 
-            barrier.image = image.first->image;
-            barrier.oldLayout = this->get_image_actual_image_layout(image.first);
+            barrier.image = img->get_image();
+            barrier.oldLayout = this->get_image_actual_image_layout(img);
             barrier.newLayout = getImageLayout(image.second);
             barrier.srcAccessMask = getImageAccessBits(barrier.oldLayout);
             barrier.dstAccessMask = getImageAccessBits(barrier.newLayout);
@@ -559,7 +569,7 @@ private:
             barrier.subresourceRange.layerCount = 1;
             barrier.subresourceRange.levelCount = 1;
             barrier.subresourceRange.aspectMask =
-                image.first->format == vk::Format::eD32Sfloat
+                img->get_native_format() == vk::Format::eD32Sfloat
                     ? vk::ImageAspectFlagBits::eDepth
                     : vk::ImageAspectFlagBits::eColor;
 
@@ -567,7 +577,7 @@ private:
 
             barriers.push_back(barrier);
 
-            this->needed_semaphores.insert(&image.first->semaphore);
+            this->needed_semaphores.insert(img->get_semaphore_ref());
         }
 
         vk::DependencyInfo dp_info = {};

@@ -149,34 +149,52 @@ add_library(
         src/vma_impl.cpp
         src/stb_image_impl.cpp
         src/command_encoders.cpp
-        src/dispatchers.cpp
+        src/transporters.cpp
         src/descriptor_pool.cpp
         src/image.cpp
         src/synchronization.cpp
         src/storage_buffer.cpp
         src/spirv_tools.cpp
         src/shader_module.cpp
+        #src/re_c_interface.cpp
+        src/dispatchers.cpp
+        src/transporters.cpp
+        src/render_engine_shares.cpp
 )
 
 target_sources(
         RenderEngineLib
         PRIVATE
-        FILE_SET CXX_MODULES
+        FILE_SET private_module
+        TYPE CXX_MODULES
         FILES
-            src/dispatchers.cppm
             src/synchronization.cppm
             src/command_encoders.cppm
             src/render_engine_shares.cppm
-            src/descriptor_pool.cppm
-            src/image.cppm
-            src/shader_module.cppm
             src/spirv_tools.cppm
-            src/storage_buffer.cppm
-        FILE_SET HEADERS
+        FILE_SET private_headers
+        TYPE HEADERS
         FILES
             headers/lib/spirv_tools.h
             headers/lib/re_typedefs.h
-            headers/lib/render_engine.h
+)
+
+target_sources(
+        RenderEngineLib
+        PUBLIC
+        FILE_SET public_modules
+        TYPE CXX_MODULES
+        FILES
+            headers/lib/dynamic_dispatchable_iterator.cppm
+            headers/lib/render_engine.cppm
+            headers/lib/Buffer.cppm
+            headers/lib/Image.cppm
+            headers/lib/DescriptorPool.cppm
+            headers/lib/Resource.cppm
+            headers/lib/ShaderModule.cppm
+            headers/lib/RenderObject.cppm
+            headers/lib/Transporters.cppm
+            headers/lib/Dispatchers.cppm
 )
 
 target_include_directories(
@@ -250,9 +268,16 @@ project(ResourceLib)
 add_library(
         ResourceLib
         SHARED
-        headers/resource_lib/resource_lib.h
         src/resource_lib/resource_loader.cpp
-        src/resource_lib/json_loader.cpp
+)
+
+target_sources(
+        ResourceLib
+        PUBLIC
+        FILE_SET modules
+        TYPE CXX_MODULES
+        FILES
+            headers/resource_lib/resource_lib.cppm
 )
 
 target_include_directories(

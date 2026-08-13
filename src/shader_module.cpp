@@ -14,7 +14,7 @@ module;
 #include <vulkan/vulkan.hpp>
 #endif
 
-module shader_module;
+module ShaderModule;
 
 #if defined(__linux__)
 import vulkan;
@@ -22,7 +22,8 @@ import std;
 #endif
 import render_engine_shares;
 import spirv_analyser;
-import storage_buffer;
+
+using namespace RenderEngine;
 
 inline size_t vk_format_to_size(vk::Format format) {
     switch (format) {
@@ -39,31 +40,35 @@ inline size_t vk_format_to_size(vk::Format format) {
     }
 }
 
-std::vector<vk::DescriptorPoolSize> genPoolSizes(RE_PoolInfo poolInfo, size_t multiplier) {
+std::vector<vk::DescriptorPoolSize> ShaderModule::get_pool_sizes(
+    size_t multiplier
+ ) {
     std::vector<vk::DescriptorPoolSize> poolSizes;
     poolSizes.reserve(4);
 
-    if (poolInfo.storageBufferCount > 0) {
+    auto& poolInfo = this->_pool_sizes;
+
+    if (poolInfo.storage_buffer_count > 0) {
         poolSizes.emplace_back();
-        poolSizes.back().descriptorCount = poolInfo.storageBufferCount * multiplier;
+        poolSizes.back().descriptorCount = poolInfo.storage_buffer_count * multiplier;
         poolSizes.back().type = vk::DescriptorType::eStorageBuffer;
     }
 
-    if (poolInfo.uniformBufferCount > 0) {
+    if (poolInfo.uniform_buffer_count > 0) {
         poolSizes.emplace_back();
-        poolSizes.back().descriptorCount = poolInfo.uniformBufferCount * multiplier;
+        poolSizes.back().descriptorCount = poolInfo.uniform_buffer_count * multiplier;
         poolSizes.back().type = vk::DescriptorType::eUniformBuffer;
     }
 
-    if (poolInfo.storageImageCount > 0) {
+    if (poolInfo.storage_image_count > 0) {
         poolSizes.emplace_back();
-        poolSizes.back().descriptorCount = poolInfo.storageImageCount * multiplier;
+        poolSizes.back().descriptorCount = poolInfo.storage_image_count * multiplier;
         poolSizes.back().type = vk::DescriptorType::eStorageImage;
     }
 
-    if (poolInfo.combinedImageCount > 0) {
+    if (poolInfo.combined_image_count > 0) {
         poolSizes.emplace_back();
-        poolSizes.back().descriptorCount = poolInfo.combinedImageCount * multiplier;
+        poolSizes.back().descriptorCount = poolInfo.combined_image_count * multiplier;
         poolSizes.back().type = vk::DescriptorType::eCombinedImageSampler;
     }
 
@@ -72,19 +77,18 @@ std::vector<vk::DescriptorPoolSize> genPoolSizes(RE_PoolInfo poolInfo, size_t mu
     return poolSizes;
 }
 
-EXPORT_RE RE_pShaderModule re_create_shader_module(
-    RE_pSpirVCode shader_code
+ShaderModule::ShaderModule(
+    RE_pSpirVCode pCode
 ) {
-    auto *shader_module = new RE_ShaderModule();
 
     vk::Device device = vkb_device.device;
 
-    auto *_shader_code = static_cast<RE_SpirVCode *>(shader_code);
+    auto *_shader_code = static_cast<RE_SpirVCode *>(pCode);
     vk::ShaderModuleCreateInfo sm_ci{};
     sm_ci.codeSize = _shader_code->code.size() * sizeof(uint32_t);
     sm_ci.pCode = _shader_code->code.data();
 
-    shader_module->module = device.createShaderModule(
+    _sm = device.createShaderModule(
         sm_ci
     );
 
@@ -103,16 +107,16 @@ EXPORT_RE RE_pShaderModule re_create_shader_module(
 
             switch (newBinding.descriptorType) {
                 case vk::DescriptorType::eStorageBuffer:
-                    shader_module->pool_info.storageBufferCount++;
+                    _pool_sizes.storage_buffer_count++;
                     break;
                 case vk::DescriptorType::eUniformBuffer:
-                    shader_module->pool_info.uniformBufferCount++;
+                    _pool_sizes.uniform_buffer_count++;
                     break;
                 case vk::DescriptorType::eStorageImage:
-                    shader_module->pool_info.storageImageCount++;
+                    _pool_sizes.storage_image_count++;
                     break;
                 case vk::DescriptorType::eCombinedImageSampler:
-                    shader_module->pool_info.combinedImageCount++;
+                    _pool_sizes.combined_image_count++;
                     break;
 
                 default:
@@ -121,10 +125,10 @@ EXPORT_RE RE_pShaderModule re_create_shader_module(
 
             }
 
-            shader_module->binding_names.insert(
+            _sets_bindings.insert(
                 {
                     binding.second.name,
-                    {set.set_index, {binding.first, newBinding.descriptorType}}
+                    {set.set_index, binding.first, newBinding.descriptorType}
                 }
             );
 
@@ -137,7 +141,7 @@ EXPORT_RE RE_pShaderModule re_create_shader_module(
             newSet,
             nullptr
         );
-        shader_module->set_layouts.insert({
+        _set_layouts.insert({
             set.set_index,
             newLayout
         });
@@ -145,10 +149,10 @@ EXPORT_RE RE_pShaderModule re_create_shader_module(
 
     vk::PipelineLayoutCreateInfo layout_compute_ci{};;
     std::vector<vk::DescriptorSetLayout> layouts{};
-    layouts.reserve(shader_module->set_layouts.size());
+    layouts.reserve(_set_layouts.size());
     uint64_t next_set = 0;
 
-    for (auto &[_, set]: shader_module->set_layouts) {
+    for (auto &[_, set]: _set_layouts) {
        /* if (next_set != set.first) {
             for (size_t i = next_set; i < set.first; i++) {
                 layouts.push_back(vk_empty_descriptor_set_layout);
@@ -161,7 +165,7 @@ EXPORT_RE RE_pShaderModule re_create_shader_module(
 
     layout_compute_ci.pSetLayouts = layouts.data();
 
-    shader_module->pipeline_layout = device.createPipelineLayout(
+    _pl_layout = device.createPipelineLayout(
         layout_compute_ci
     );
 
@@ -169,10 +173,10 @@ EXPORT_RE RE_pShaderModule re_create_shader_module(
         switch (shader.type) {
             case RE_SPV_SHADER_COMPUTE: {
                 vk::ComputePipelineCreateInfo compute_ci{};
-                compute_ci.layout = shader_module->pipeline_layout;
+                compute_ci.layout = _pl_layout;
 
                 vk::PipelineShaderStageCreateInfo shader_stage{};
-                shader_stage.module = shader_module->module;
+                shader_stage.module = _sm;
                 shader_stage.stage = vk::ShaderStageFlagBits::eCompute;
                 shader_stage.pName = shader.name.c_str();
 
@@ -183,15 +187,12 @@ EXPORT_RE RE_pShaderModule re_create_shader_module(
                     compute_ci
                 ).value;
 
-                RE_BasePipeline newCP{};
-                newCP.pipeline = compute_pl;
-
-                shader_module->registered_compute_pipelines.insert({shader.name, newCP});
+                _compute_pipelines.insert({shader.name, compute_pl});
                 break;
             }
 
             case RE_SPV_SHADER_VERTEX: {
-                shader_module->loaded_vertex_shaders.insert({
+                _vertex_shaders.insert({
                     shader.name,
                     shader.vertex_attributes
                 });
@@ -199,7 +200,7 @@ EXPORT_RE RE_pShaderModule re_create_shader_module(
             }
 
             case RE_SPV_SHADER_FRAGMENT: {
-                shader_module->loaded_fragment_shaders.insert({
+                _fragment_shaders.insert({
                     shader.name,
                     shader.color_output_count
                 });
@@ -207,30 +208,25 @@ EXPORT_RE RE_pShaderModule re_create_shader_module(
             }
         }
     }
-
-    return shader_module;
 }
 
-EXPORT_RE void re_register_render_pipeline(
-    RE_pShaderModule shader_module,
-    const char *pipeline_name,
-    const char *vertex_name,
-    const char *fragment_name,
-    bool depth
+void ShaderModule::register_render_pipeline (
+    const std::string& pipeline_name,
+    const std::string& vertex_name,
+    const std::string& fragment_name,
+    bool depth_test_enable
 )
 {
-    auto *_shader_module = static_cast<RE_ShaderModule *>(shader_module);
-
     vk::PipelineShaderStageCreateInfo shader_stages[2] = {};
     shader_stages[0] = vk::PipelineShaderStageCreateInfo{};
     shader_stages[0].stage = vk::ShaderStageFlagBits::eVertex;
-    shader_stages[0].pName = vertex_name;
-    shader_stages[0].module = _shader_module->module;
+    shader_stages[0].pName = vertex_name.c_str();
+    shader_stages[0].module = _sm;
 
     shader_stages[1] = vk::PipelineShaderStageCreateInfo{};
     shader_stages[1].stage = vk::ShaderStageFlagBits::eFragment;
-    shader_stages[1].pName = fragment_name;
-    shader_stages[1].module = _shader_module->module;
+    shader_stages[1].pName = fragment_name.c_str();
+    shader_stages[1].module = _sm;
 
     vk::GraphicsPipelineCreateInfo ci{};
     ci.stageCount = 2;
@@ -238,7 +234,7 @@ EXPORT_RE void re_register_render_pipeline(
 
     vk::PipelineVertexInputStateCreateInfo vertex_input_ci{};
     auto &vertex_inputs =
-        _shader_module->loaded_vertex_shaders[vertex_name];
+        _vertex_shaders[vertex_name];
     vertex_input_ci.pVertexAttributeDescriptions = vertex_inputs.data();
     vertex_input_ci.vertexAttributeDescriptionCount = vertex_inputs.size();
     size_t total_size = 0;
@@ -281,7 +277,7 @@ EXPORT_RE void re_register_render_pipeline(
     ci.pMultisampleState = &multisample_ci;
 
     vk::PipelineDepthStencilStateCreateInfo depth_stencil_ci{};
-    depth_stencil_ci.depthTestEnable = depth;
+    depth_stencil_ci.depthTestEnable = depth_test_enable;
     depth_stencil_ci.depthWriteEnable = true;
     depth_stencil_ci.depthCompareOp = vk::CompareOp::eLess;
 
@@ -292,7 +288,7 @@ EXPORT_RE void re_register_render_pipeline(
     color_blend_state.colorWriteMask = vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG |
                                        vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA;
 
-    size_t color_output_count = _shader_module->loaded_fragment_shaders[fragment_name];
+    size_t color_output_count = _fragment_shaders[fragment_name];
 
     auto color_blend_attachments =
                 std::views::repeat(color_blend_state, color_output_count) |
@@ -325,63 +321,55 @@ EXPORT_RE void re_register_render_pipeline(
     dynamic_state_ci.pDynamicStates = dynamic_states.data();
 
     ci.pDynamicState = &dynamic_state_ci;
-    ci.layout = _shader_module->pipeline_layout;
+    ci.layout = _pl_layout;
 
     vk::Device _device = vkb_device.device;
     vkb_device_lock.lock();
     vk::Pipeline ppl = _device.createGraphicsPipeline({}, ci).value;
     vkb_device_lock.unlock();
 
-    RE_GraphicsPipeline gppl{};
-    gppl.vertex_buffer_inputs = vertex_inputs;
-    gppl.base_ppl.pipeline = ppl;
+    GraphicsPipeline gppl{};
+    gppl.vertex_buffer_input = vertex_inputs;
+    gppl.pl = ppl;
     gppl.bytes_per_vertex = total_size;
-    gppl.depth_enable = depth;
-    gppl.required_image_bindings = color_output_count;
+    gppl.depth_enable = depth_test_enable;
+    gppl.image_binding_count = color_output_count;
 
-    _shader_module->registered_graphics_pipelines.insert({pipeline_name, gppl});
+    _graphics_pipelines.insert({pipeline_name, gppl});
 }
 
-EXPORT_RE RE_pBuffer re_allocate_vertex_buffer(
-    RE_pShaderModule shader_module,
-    const char* pipeline_name,
-    uint32_t vertex_count
+ std::shared_ptr<RawBuffer> ShaderModule::allocate_compatible_vertex_buffer(
+     const std::string& graphics_pipeline_name,
+     std::size_t vertex_count
 ) {
-    auto* _shader_module = static_cast<RE_ShaderModule*>(shader_module);
+    if (!_graphics_pipelines.contains(graphics_pipeline_name))
+    {
+       return nullptr;
+    }
 
-    size_t buffer_size = vertex_count * _shader_module->registered_graphics_pipelines[pipeline_name].bytes_per_vertex;
+    size_t buffer_size = vertex_count *
+        _graphics_pipelines[graphics_pipeline_name].bytes_per_vertex;
 
-    auto* new_buffer = re_create_buffer(
-        buffer_size,
-        false,
-        false
-    );
-
-    return new_buffer;
+    return RawBuffer::create(buffer_size);
 }
 
-EXPORT_RE void re_free_shader_module(
-    RE_pShaderModule shader_module
-) {
-    auto *_shader_module = static_cast<RE_ShaderModule *>(shader_module);
-
+ShaderModule::~ShaderModule()
+{
     vk::Device device = vkb_device.device;
 
-    for (auto &shader: _shader_module->registered_compute_pipelines) {
-        device.destroy(shader.second.pipeline);
+    for (vk::Pipeline& pl : _compute_pipelines | std::views::values) {
+        device.destroy(pl);
     }
 
-    for (auto& shader : _shader_module->registered_graphics_pipelines) {
-        device.destroy(shader.second.base_ppl.pipeline);
+    for (GraphicsPipeline& pl : _graphics_pipelines | std::views::values) {
+        device.destroy(pl.pl);
     }
 
-    device.destroy(_shader_module->pipeline_layout);
+    device.destroy(_pl_layout);
 
-    for (auto &set: _shader_module->set_layouts) {
-        device.destroy(set.second);
+    for (vk::DescriptorSetLayout& layout: _set_layouts | std::views::values) {
+        device.destroy(layout);
     }
 
-    device.destroyShaderModule(_shader_module->module);
-
-    delete _shader_module;
+    device.destroyShaderModule(_sm);
 }

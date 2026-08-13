@@ -7,19 +7,25 @@ module;
 #include <re_typedefs.h>
 #include "export_macro.h"
 #include <vk_mem_alloc.h>
+#include <VkBootstrap.h>
 #include "uid.h"
 
 #if defined(__APPLE__)
 #include <vulkan/vulkan.hpp>
 #endif
 
-module image;
+module Image;
 
 #if defined(__linux__)
 import vulkan;
 import std;
 #endif
 import render_engine_shares;
+import render_engine;
+import synchronization;
+import command_encoders;
+
+using namespace RenderEngine;
 
 vk::Format image_format_re_to_vk(RE_IMAGE_FORMATS formats) {
     switch (formats) {
@@ -34,9 +40,11 @@ vk::Format image_format_re_to_vk(RE_IMAGE_FORMATS formats) {
         case RE_IMAGE_FORMAT_DEPTH:
             return vk::Format::eD32Sfloat;
     }
+
+    return vk::Format::eR8G8B8A8Srgb;
 }
 
-EXPORT_RE RE_pImage re_create_image(
+Image::Image(
     uint32_t width,
     uint32_t height,
     RE_IMAGE_FORMATS format,
@@ -115,53 +123,162 @@ EXPORT_RE RE_pImage re_create_image(
 
     vk::Device device = vkb_device.device;
 
-    auto new_image = new RE_Image{};
-    new_image->format = real_format;
-    new_image->height = height;
-    new_image->width = width;
-    new_image->image = image;
-    new_image->allocation = allocation;
-    new_image->uid = gen_uid();
+    _uid = gen_uid();
+    _format = real_format;
+    _height = height;
+    _width = width;
+    _img = image;
+    _allocation = allocation;
     vkb_device_lock.lock();
-    new_image->view = device.createImageView(view_create_info);
-    new_image->sampler = device.createSampler(sampler_create_info);
+    _view = device.createImageView(view_create_info);
+    _sampler = device.createSampler(sampler_create_info);
     vkb_device_lock.unlock();
 
-    return new_image;
+    _combined_img_sampler.imageView = _view;
+    _combined_img_sampler.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+    _combined_img_sampler.sampler = _sampler;
+
+    _storage_img.imageView = _view;
+    _storage_img.imageLayout = vk::ImageLayout::eGeneral;
 }
 
-EXPORT_RE void re_get_image_dimensions(
-    RE_pImage image,
-    uint32_t *width,
-    uint32_t *height
-) {
-    auto _image = reinterpret_cast<RE_Image*>(image);
-    *width = _image->width;
-    *height = _image->height;
+Image::Image()
+{
+    _uid = gen_uid();
+    _swap_chain = true;
+
+    _combined_img_sampler.imageView = _view;
+    _combined_img_sampler.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+    _combined_img_sampler.sampler = _sampler;
+
+    _storage_img.imageView = _view;
+    _storage_img.imageLayout = vk::ImageLayout::eGeneral;
 }
 
-EXPORT_RE void re_free_image(
-    RE_pImage image
-) {
-    auto* _image = reinterpret_cast<RE_Image *>(image);
+vk::WriteDescriptorSet Image::get_descriptor_set_write(vk::DescriptorType type)
+{
+    vk::WriteDescriptorSet set = {};
+    set.descriptorType = type;
+    set.descriptorCount = 1;
+    set.pImageInfo =
+        type == vk::DescriptorType::eCombinedImageSampler ?
+        &_combined_img_sampler : &_storage_img;
+    return set;
+}
 
+Image::~Image()
+{
     vk::Device device = vkb_device.device;
 
-    if (_image->is_swapchain) {
+    if (_swap_chain) {
         return;
     }
 
     vkb_device_lock.lock();
-    device.destroy(_image->sampler);
+    device.destroy(_sampler);
 
-    device.destroy(_image->view);
+    device.destroy(_view);
 
     vmaDestroyImage(
         vma_allocator,
-        _image->image,
-        _image->allocation
+        _img,
+        _allocation
     );
     vkb_device_lock.unlock();
+}
 
-    delete _image;
+void Image::present()
+{
+    if (!_swap_chain)
+    {
+        return;
+    }
+
+    vk::Device device = vkb_device.device;
+
+    auto semaphore = ResourceFrame::transfer_images_layout(
+        std::views::single(std::pair{this, I_PRESENT})
+    );
+
+    vk::SwapchainKHR swapchain = vkb_swap_chain.swapchain;
+
+    vk::PresentInfoKHR present_info = {};
+    present_info.waitSemaphoreCount = 1;
+    present_info.pWaitSemaphores = &semaphore;
+    present_info.pSwapchains = &swapchain;
+    present_info.swapchainCount = 1;
+    present_info.pImageIndices = &_sc_index;
+
+    vkb_device_lock.lock();
+
+    try
+    {
+        auto result = vk_queue.presentKHR(present_info);
+        if (result != vk::Result::eSuccess)
+        {
+            vkb_device_lock.unlock();
+            free_semaphore(*get_semaphore_ref());
+            return;
+        }
+    }catch (vk::OutOfDateKHRError& _)
+    {
+        vkb_device_lock.unlock();
+        free_semaphore(*get_semaphore_ref());
+        return;
+    }
+
+    vkb_device_lock.unlock();
+
+    free_semaphore(*get_semaphore_ref());
+}
+
+std::shared_ptr<Image> Image::get_swapchain_image()
+{
+
+    vk::Device vk_device = vkb_device.device;
+
+swap_chain_accssing:
+
+    if (next_image_semaphore >= vk_swap_chain_semaphores.size()) {
+        next_image_semaphore = 0;
+    }
+
+    int64_t id = 0;
+
+    try
+    {
+        auto result = vk_device.acquireNextImageKHR(
+            vkb_swap_chain.swapchain,
+            UINT64_MAX,
+            vk_swap_chain_semaphores[next_image_semaphore],
+            {}
+        );
+        id = result.value;
+    }catch (vk::OutOfDateKHRError& _)
+    {
+        id = -1;
+    }
+
+    if (id == -1) {
+        wait_device_free();
+        init_swap_chain(true);
+        populate_swapchain();
+        goto swap_chain_accssing;
+    }
+
+    auto image = std::shared_ptr<Image>(new Image());
+    image->_img = vk_swap_chain_images[id];
+    image->_view = vk_swap_chain_views[id];
+    image->_layout = vk::ImageLayout::eUndefined;
+    image->_uid = gen_uid();
+
+    image->_semaphore = &vk_swap_chain_semaphores[next_image_semaphore];
+    image->_width = vkb_swap_chain.extent.width;
+    image->_height = vkb_swap_chain.extent.height;
+    image->_format = static_cast<vk::Format>(vkb_swap_chain.image_format);
+    image->_sc_index = id;
+
+    next_image_semaphore++;
+
+    return image;
 }

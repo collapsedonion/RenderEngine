@@ -1,31 +1,36 @@
 #define GLFW_INCLUDE_VULKAN
-#include <chrono>
-#include <print>
 #include <GLFW/glfw3.h>
-#include <render_engine.h>
 #include <spirv_tools.h>
-#include <vulkan/vulkan.hpp>
-#include <ranges>
-#include <thread>
 
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
-#include <numbers>
 #include <glm/mat4x4.hpp>
 #include <glm/ext/matrix_transform.hpp>
 #include <glm/ext/matrix_clip_space.hpp>
-
-#include "resource_lib.h"
 #include "glm/fwd.hpp"
 
+import Buffer;
+import Image;
+import render_engine;
+import RenderObject;
+import DescriptorPool;
+import resource_lib;
+import vulkan;
+import Transporters;
+import Dispatchers;
+import std;
+import dynamic_dispatchable_iterator;
 
 const std::string json_path = "resources.json";
 
 const uint32_t teapot_count = 100;
 const uint32_t teapot_per_row = 5;
 
-RE_pBuffer teapot_position_matricies[teapot_count] = {};
-RE_pDescriptorSet teapot_resources_sets[teapot_count] = {};
-RE_RenderObject teapot_render_objects[teapot_count] = {};
+using namespace RenderEngine;
+
+std::shared_ptr<RawBuffer> teapot_position_matricies[teapot_count] = {};
+std::shared_ptr<DescriptorPool::DescriptorSet> teapot_resources_sets[teapot_count] = {};
+std::weak_ptr<DescriptorPool::DescriptorSet> teapot_weak_ptr[teapot_count] = {};
+RenderObject teapot_render_objects[teapot_count] = {};
 glm::vec3 teapot_rotation_directions[teapot_count] = {};
 
 int main()
@@ -39,37 +44,36 @@ int main()
     auto window =
         glfwCreateWindow(640, 480, "Render Engine", nullptr, nullptr);
 
-    init_render_engine(window);
-    rm_init_resource_manager();
+    RenderEngine::init(window);
+    ResourceLib::init_resource_manager();
 
     auto* shader_code = re_load_spirv_code(
         "shaders/compiled/shaders.spv"
     );
 
-    auto* module = re_create_shader_module(shader_code);
+    auto module = ShaderModule::create(shader_code);
 
-    re_register_render_pipeline(
-        module,
+    module->register_render_pipeline(
         "test_gp",
         "vertex_shader",
         "fragment_shader",
         true
     );
 
-    RE_pDescriptorPool global_descriptor_pool = re_create_descriptor_pool(
+    auto global_descriptor_pool = DescriptorPool::create(
         module, teapot_count
     );
 
-    rm_load_resources_from_json(
+    ResourceLib::load_resources_from_json(
         json_path.c_str()
     );
 
-    uint32_t model_count = rm_get_loaded_mesh_count("teapot_model");
+    uint32_t model_count = ResourceLib::get_loaded_mesh_count("teapot_model");
 
-    const char* sampled_texture_name = "sampled_image";
-    const char* matrix_buffer_name = "matrix";
+    std::string sampled_texture_name = "sampled_image";
+    std::string matrix_buffer_name = "matrix";
 
-    RE_pImage depth_buffer = re_create_image(
+    auto depth_buffer = Image::create(
         1024,
         1024,
         RE_IMAGE_FORMAT_DEPTH,
@@ -78,7 +82,7 @@ int main()
         true
     );
 
-    RE_pImage render_image = re_create_image(
+    auto render_image = Image::create(
         1024,
         1024,
         RE_IMAGE_FORMAT_RGBA8,
@@ -87,42 +91,38 @@ int main()
         true
     );
 
-    RE_pImage brick_wall_texture = rm_get_loaded_texture(
+    auto brick_wall_texture = ResourceLib::get_loaded_texture(
         "bricks_texture"
     );
 
-    auto teapot_vertex_buffer = rm_get_loaded_mesh("teapot_model_0");
+    auto teapot_vertex_buffer = ResourceLib::get_loaded_mesh("teapot_model_0");
+    auto resources = std::vector<std::tuple<std::string&, Resource*>>{
+        {sampled_texture_name, brick_wall_texture.get()},
+        {matrix_buffer_name, nullptr}
+    };
 
     uint32_t set_index = 0;
     //init teapots data
     for (uint32_t i = 0; i < teapot_count; i++)
     {
-        re_create_descriptor_sets(global_descriptor_pool, 1, &set_index, &teapot_resources_sets[i]);
-        teapot_position_matricies[i] = re_create_buffer(
+        auto id_set = RangedIterator(std::views::single(set_index));
+        teapot_resources_sets[i] = global_descriptor_pool->create_sets(id_set)[0];
+
+        teapot_position_matricies[i] = RawBuffer::create(
             sizeof(glm::fmat4),
             true,
             true);
         teapot_render_objects[i].vertex_buffer = teapot_vertex_buffer;
-        teapot_render_objects[i].descriptor_set_count = 1;
-        teapot_render_objects[i].descriptor_sets = &teapot_resources_sets[i];
+        teapot_weak_ptr[i] = std::weak_ptr(teapot_resources_sets[i]);
+        teapot_render_objects[i].sets = std::span(&teapot_weak_ptr[i], 1);
 
         teapot_rotation_directions[i] = glm::vec3((float)rand() / (float)RAND_MAX, (float)rand() / (float)RAND_MAX,
                                                   (float)rand() / (float)RAND_MAX);
 
-        re_write_set_buffers(
-            teapot_resources_sets[i],
-            1,
-            &matrix_buffer_name,
-            &teapot_position_matricies[i],
-            nullptr,
-            nullptr
-        );
-
-        re_write_set_images(
-            teapot_resources_sets[i],
-            1,
-            &sampled_texture_name,
-            &brick_wall_texture
+        resources.at(1) = {matrix_buffer_name, teapot_position_matricies[i].get()};
+        auto bindings = RangedIterator(std::views::all(resources));
+        teapot_resources_sets[i]->write_bindings(
+            bindings
         );
     }
 
@@ -134,22 +134,19 @@ int main()
     auto scaling_matrix = glm::scale(glm::mat4(1.0f), glm::vec3(0.5f));
     float begin_offset = -2.0f - teapot_per_row;
 
-    re_wait_device_free();
+    wait_device_free();
+
+    std::string ppl_name = "test_gp";
 
     while (!glfwWindowShouldClose(window))
     {
         glfwPollEvents();
 
-        auto present_image = re_get_present_image();
-
-        uint32_t present_width = 0;
-        uint32_t present_height = 0;
-
-        re_get_image_dimensions(present_image, &present_width, &present_height);
+        auto present_image = Image::get_swapchain_image();
 
         glm::mat4 perspective_matrix = glm::perspective(
             glm::radians(45.0f),
-            (float)present_width / (float)present_height,
+            (float)present_image->width() / (float)present_image->height(),
             0.1f,
             100.0f
         );
@@ -157,7 +154,7 @@ int main()
         {
             for (uint32_t i = 0; i < teapot_count; i++)
             {
-                auto* mat = reinterpret_cast<glm::mat4*>(re_map_buffer(teapot_position_matricies[i]));
+                auto* mat = reinterpret_cast<glm::mat4*>(teapot_position_matricies[i]->map());
 
                 *mat =
                     perspective_matrix
@@ -175,29 +172,32 @@ int main()
                     scaling_matrix;
 
 
-                re_unmap_buffer(teapot_position_matricies[i]);
+                teapot_position_matricies[i]->unmap();
             }
         }
 
-        re_render(
-            "test_gp",
+        auto target_images = RangedIterator(std::views::single(render_image.get()));
+        auto ro_it = RangedIterator(std::span(teapot_render_objects, teapot_count));
+
+        RenderEngine::dispatch_graphics_pipeline(
             module,
-            1,
-            &render_image,
-            teapot_count,
-            teapot_render_objects,
-            &depth_buffer,
+            ppl_name,
+            target_images,
+            ro_it,
+            depth_buffer,
           false
         );
 
-        RE_ImageToImageTransfer transfer_info = {
+        ImageToImageInfo transfer_info = {
             .from_image = render_image,
             .to_image = present_image
         };
 
-        re_transfer_image_to_image(&transfer_info, 1);
+        auto transport_it = RangedIterator(std::views::single(transfer_info));
 
-        re_present_image(present_image);
+        transfer_image_to_image(transport_it);
+
+        present_image->present();
 
         auto now = std::chrono::high_resolution_clock::now();
         std::chrono::duration<float> elapsed_seconds = now - previous_time_point;
@@ -206,20 +206,23 @@ int main()
         previous_time_point = now;
     }
 
-    re_wait_device_free();
+    wait_device_free();
 
     for (uint32_t i = 0; i < teapot_count; i++)
     {
-        re_free_buffer(teapot_position_matricies[i]);
+        teapot_position_matricies[i].reset();
+        teapot_render_objects[i].vertex_buffer.reset();
     }
 
-    rm_free_resource_manager();
-    re_free_image(render_image);
-    re_free_descriptor_pool(global_descriptor_pool);
-    re_free_shader_module(module);
+    teapot_vertex_buffer.reset();
+    brick_wall_texture.reset();
+    ResourceLib::free_resource_manager();
+    render_image.reset();
+    global_descriptor_pool.reset();
+    module.reset();
     re_free_spirv_code(shader_code);
 
-    re_free_render_engine();
+    RenderEngine::release();
 
     glfwTerminate();
     return 0;

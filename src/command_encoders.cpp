@@ -21,20 +21,16 @@ module command_encoders;
 import vulkan;
 import std;
 #endif
-import descriptor_pool;
-import storage_buffer;
 import render_engine_shares;
 import synchronization;
-import shader_module;
-import image;
 
 vk::ImageLayout ResourceFrame::get_image_actual_image_layout(
-    RE_Image* pImage
+    RenderEngine::Image* pImage
 )
 {
     if (!this->used_images.contains(pImage))
     {
-        return pImage->last_layout;
+        return *pImage->get_layout_ptr();
     }
 
     return this->used_images.at(pImage).second;
@@ -42,29 +38,29 @@ vk::ImageLayout ResourceFrame::get_image_actual_image_layout(
 
 void ResourceFrame::record_buffers_transport(
     vk::CommandBuffer command_buffer,
-    const RE_BufferToBufferTransfer& transfer
+    const RenderEngine::BufferToBufferInfo& transfer
 )
 {
-    auto from_buffer = static_cast<RE_Buffer*>(transfer.from_buffer);
-    auto to_buffer = static_cast<RE_Buffer*>(transfer.to_buffer);
-
     size_t from_effective = transfer.from_index + transfer.size;
     size_t to_effective = transfer.to_index + transfer.size;
 
-    if (from_effective > from_buffer->size || to_effective > to_buffer->size)
+    auto from = transfer.from.lock();
+    auto to = transfer.to.lock();
+
+    if (from_effective > from->size() || to_effective > to->size())
     {
         throw std::out_of_range("Buffer copy is out of range");
     }
 
-    std::array<std::pair<RE_Buffer*, USAGE_TYPE>, 2> buffers = {
-        std::pair{from_buffer, T_READ},
-        std::pair{to_buffer, T_WRITE}
+    std::array<std::pair<RenderEngine::RawBuffer*, USAGE_TYPE>, 2> buffers = {
+        std::pair{from.get(), T_READ},
+        std::pair{to.get(), T_WRITE}
     };
     process_buffers_sync(command_buffer, buffers);
 
     vk::CopyBufferInfo2 copy_buffer_info = {};
-    copy_buffer_info.srcBuffer = from_buffer->buffer;
-    copy_buffer_info.dstBuffer = to_buffer->buffer;
+    copy_buffer_info.srcBuffer = from->get_raw_buffer();
+    copy_buffer_info.dstBuffer = to->get_raw_buffer();
 
     copy_buffer_info.regionCount = 1;
     vk::BufferCopy2 copy_region = {};
@@ -72,7 +68,9 @@ void ResourceFrame::record_buffers_transport(
 
     copy_region.srcOffset = transfer.from_index;
     copy_region.dstOffset = transfer.to_index;
-    copy_region.size = transfer.size ? transfer.size: std::min(to_buffer->size, from_buffer->size);
+    copy_region.size = transfer.size ? transfer.size:
+        std::min(to->size(), from->size()
+    );
 
     {
         std::lock_guard<std::recursive_mutex> pool_guard(vk_pool_lock);
@@ -82,7 +80,7 @@ void ResourceFrame::record_buffers_transport(
 
 void ResourceFrame::record_compute_shader_submit(
     vk::CommandBuffer command_buffer,
-    RE_ShaderModule* shader_module,
+    RenderEngine::ShaderModule* shader_module,
     const std::string& shader_name,
     size_t descriptor_set_count,
     vk::DescriptorSet* descriptor_sets,
@@ -91,14 +89,15 @@ void ResourceFrame::record_compute_shader_submit(
     size_t groupCountZ
 )
 {
-    auto& ppl = shader_module->registered_compute_pipelines[shader_name];
+
+    auto ppl = shader_module->get_compute_pipeline(shader_name);
 
     {
         std::lock_guard<std::recursive_mutex> pool_guard(vk_pool_lock);
-        command_buffer.bindPipeline(vk::PipelineBindPoint::eCompute, ppl.pipeline);
+        command_buffer.bindPipeline(vk::PipelineBindPoint::eCompute, ppl);
         command_buffer.bindDescriptorSets(
             vk::PipelineBindPoint::eCompute,
-            shader_module->pipeline_layout,
+            shader_module->get_pipeline_layout(),
             0,
             descriptor_set_count,
             descriptor_sets,
@@ -148,20 +147,20 @@ void ResourceFrame::update_image_layouts()
 {
     for (auto& [pImage, data] : this->used_images)
     {
-        pImage->last_layout = data.second;
+        *pImage->get_layout_ptr() = data.second;
     }
 }
 
 void ResourceFrame::record_buffer_to_image_transport(
     vk::CommandBuffer command_buffer,
-    RE_Buffer* from_buffer,
-    RE_Image* to_image
+    RenderEngine::RawBuffer* from_buffer,
+    RenderEngine::Image* to_image
 )
 {
-    std::array<std::pair<RE_Buffer*, USAGE_TYPE>, 1> buffers = {std::pair{from_buffer, T_READ}};
+    std::array<std::pair<RenderEngine::RawBuffer*, USAGE_TYPE>, 1> buffers = {std::pair{from_buffer, T_READ}};
     process_buffers_sync(command_buffer, buffers);
 
-    std::array<std::pair<RE_Image*, USAGE_TYPE>, 1> images = {std::pair{to_image, T_WRITE}};
+    std::array<std::pair<RenderEngine::Image*, USAGE_TYPE>, 1> images = {std::pair{to_image, T_WRITE}};
     process_images_sync(command_buffer, images);
 
     vk::BufferImageCopy buffer_image_copy = {};
@@ -173,13 +172,13 @@ void ResourceFrame::record_buffer_to_image_transport(
     buffer_image_copy.imageSubresource.baseArrayLayer = 0;
     buffer_image_copy.imageSubresource.aspectMask = vk::ImageAspectFlagBits::eColor;
     buffer_image_copy.imageOffset = vk::Offset3D{0, 0, 0};
-    buffer_image_copy.imageExtent = vk::Extent3D{to_image->width, to_image->height, 1};
+    buffer_image_copy.imageExtent = vk::Extent3D{to_image->width(), to_image->height(), 1};
 
     {
         std::lock_guard<std::recursive_mutex> pool_guard(vk_pool_lock);
         command_buffer.copyBufferToImage(
-            from_buffer->buffer,
-            to_image->image,
+            from_buffer->get_raw_buffer(),
+            to_image->get_image(),
             this->get_image_actual_image_layout(to_image),
             1,
             &buffer_image_copy
@@ -189,15 +188,15 @@ void ResourceFrame::record_buffer_to_image_transport(
 
 void ResourceFrame::record_image_transport(
     vk::CommandBuffer command_buffer,
-    RE_Image* src_image,
-    RE_Image* dst_image,
+    RenderEngine::Image* src_image,
+    RenderEngine::Image* dst_image,
     std::pair<uint32_t, uint32_t> src_offset,
     std::pair<uint32_t, uint32_t> src_size,
     std::pair<uint32_t, uint32_t> dst_offset,
     std::pair<uint32_t, uint32_t> dst_size
 )
 {
-    std::array<std::pair<RE_Image*, USAGE_TYPE>, 2> used_images = {
+    std::array<std::pair<RenderEngine::Image*, USAGE_TYPE>, 2> used_images = {
         std::pair{src_image, T_READ},
         std::pair{dst_image, T_WRITE}
     };
@@ -207,7 +206,7 @@ void ResourceFrame::record_image_transport(
         used_images
     );
 
-    vk::ImageAspectFlags aspect = (src_image->format == vk::Format::eD32Sfloat)
+    vk::ImageAspectFlags aspect = (src_image->get_native_format() == vk::Format::eD32Sfloat)
         ? vk::ImageAspectFlagBits::eDepth
         : vk::ImageAspectFlagBits::eColor;
 
@@ -222,8 +221,8 @@ void ResourceFrame::record_image_transport(
     {
         std::lock_guard<std::recursive_mutex> pool_guard(vk_pool_lock);
         command_buffer.blitImage(
-            src_image->image, vk::ImageLayout::eTransferSrcOptimal,
-            dst_image->image, vk::ImageLayout::eTransferDstOptimal,
+            src_image->get_image(), vk::ImageLayout::eTransferSrcOptimal,
+            dst_image->get_image(), vk::ImageLayout::eTransferDstOptimal,
             {blit_info}, vk::Filter::eLinear
         );
     }

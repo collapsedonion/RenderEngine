@@ -23,46 +23,50 @@ module;
 #include <vulkan/vulkan.hpp>
 #endif
 
-module storage_buffer;
+module Buffer;
 
 #if defined(__linux__)
 import vulkan;
 import std;
 #endif
 import render_engine_shares;
-import image;
+
+using namespace RenderEngine;
 
 struct Cache {
     Assimp::Importer importer{};
     const aiScene *scene = nullptr;
 };
 
-EXPORT_RE uint8_t *re_map_buffer(RE_pBuffer buffer) {
-    auto *_buffer = static_cast<RE_Buffer *>(buffer);
+std::uint8_t* RawBuffer::map() {
+    if (!_valid)
+    {
+        return nullptr;
+    }
+
+    if (!_host_access)
+    {
+        return nullptr;
+    }
 
     void *result;
 
-    vmaMapMemory(vma_allocator, _buffer->allocation, &result);
+    vmaMapMemory(vma_allocator, _allocation, &result);
 
-    return static_cast<uint8_t *>(result);
+    return static_cast<std::uint8_t *>(result);
 }
 
-EXPORT_RE void re_unmap_buffer(RE_pBuffer buffer) {
-    auto *_buffer = static_cast<RE_Buffer *>(buffer);
-    vmaUnmapMemory(vma_allocator, _buffer->allocation);
+void RawBuffer::unmap() {
+    if (!_valid)
+    {
+        return;
+    }
+
+    vmaUnmapMemory(vma_allocator, _allocation);
 }
 
-EXPORT_RE uint64_t re_get_buffer_size(RE_pBuffer buffer) {
-    RE_Buffer *_buffer = static_cast<RE_Buffer *>(buffer);
-
-    return _buffer->size;
-}
-
-EXPORT_RE RE_pBuffer re_create_buffer(
-    size_t byte_size,
-    bool host,
-    bool random_access
-) {
+RawBuffer::RawBuffer(size_t byte_size, bool host, bool random_access)
+{
     vk::BufferCreateInfo buffer_create_info{};
     buffer_create_info.size = byte_size;
 
@@ -93,7 +97,6 @@ EXPORT_RE RE_pBuffer re_create_buffer(
                                        )
                                        : 0;
 
-    auto *buffer = new RE_Buffer();
 
     VkBuffer vk_buffer = {};
     VmaAllocation vma_allocation = {};
@@ -110,71 +113,42 @@ EXPORT_RE RE_pBuffer re_create_buffer(
     );
     vkb_device_lock.unlock();
 
-    buffer->buffer = vk_buffer;
-    buffer->allocation = vma_allocation;
-    buffer->size = byte_size;
-    buffer->random_accessible = random_access;
-    buffer->host_accessible = host;
-    buffer->uid = gen_uid();
-
-    return reinterpret_cast<RE_pBuffer>(buffer);
+    _buffer = vk_buffer;
+    _allocation = vma_allocation;
+    _size = byte_size;
+    _random_access = random_access;
+    _host_access = host;
+    _valid = true;
+    _set_info.buffer = _buffer;
+    _set_info.offset = 0;
+    _set_info.range = vk::WholeSize;
+    _uid = gen_uid();
 }
 
-EXPORT_RE uint32_t re_get_model_mesh_count(
-    void *cache
-) {
-    return static_cast<Cache *>(cache)->scene->mNumMeshes;
-}
-
-EXPORT_RE RE_pBuffer re_load_model_to_buffer(
-    const char *path,
-    bool include_uv,
-    bool include_normal,
-    bool flip_order,
-    int64_t model_index,
-    void **cache
-) {
-    const aiScene *scene;
-
-    Assimp::Importer importer;
-
+ModelLoader::ModelLoader(const std::filesystem::path& path, bool flip_order)
+{
     auto start_flags = flip_order ? aiProcess_FlipWindingOrder : 0;
+    _scene = _importer.ReadFile(
+        path,
+        start_flags | aiProcess_Triangulate |
+        aiProcess_GenNormals |
+        aiProcess_GenUVCoords |
+        aiProcess_JoinIdenticalVertices);
+}
 
-    if (cache == nullptr) {
-        scene = importer.ReadFile(
-            path,
-            start_flags | aiProcess_Triangulate |
-            aiProcess_GenNormals |
-            aiProcess_GenUVCoords |
-            aiProcess_JoinIdenticalVertices);
-    } else if (*cache == nullptr) {
-        *cache = new Cache();
-        static_cast<Cache *>(*cache)->scene = static_cast<Cache *>(*cache)->importer.ReadFile(
-            path,
-            start_flags | aiProcess_Triangulate |
-            aiProcess_GenNormals |
-            aiProcess_GenUVCoords |
-            aiProcess_JoinIdenticalVertices);
-        scene = static_cast<Cache *>(*cache)->scene;
-    } else {
-        scene = static_cast<Cache *>(*cache)->scene;
-    }
+ModelLoader::~ModelLoader()
+{
+    _importer.FreeScene();
+}
 
-    if (model_index == -1) {
-        return nullptr;
-    }
-
-    std::vector<float> vertex_data;
-
-    if (scene == nullptr) {
-        return nullptr;
-    }
-
-    if (model_index >= scene->mNumMeshes) {
-        return nullptr;
-    }
-
-    auto mesh = scene->mMeshes[model_index];
+std::shared_ptr<RawBuffer> ModelLoader::load_mesh(
+    std::uint64_t model_index,
+    bool include_uvs,
+    bool include_normals
+) const
+{
+    auto mesh = _scene->mMeshes[model_index];
+    std::vector<float> vertex_data {};
     vertex_data.reserve(8 * mesh->mNumFaces);
 
     std::array<float, 3> vertex{};
@@ -191,13 +165,13 @@ EXPORT_RE RE_pBuffer re_load_model_to_buffer(
 
             vertex_data.insert(vertex_data.end(), vertex.begin(), vertex.end());
 
-            if (include_uv) {
+            if (include_uvs) {
                 uv[0] = mesh->mTextureCoords[0][face.mIndices[vert_i]].x;
                 uv[1] = mesh->mTextureCoords[0][face.mIndices[vert_i]].y;
                 vertex_data.insert(vertex_data.end(), uv.begin(), uv.end());
             }
 
-            if (include_normal) {
+            if (include_normals) {
                 normal[0] = mesh->mNormals[face.mIndices[vert_i]].x;
                 normal[1] = mesh->mNormals[face.mIndices[vert_i]].y;
                 normal[2] = mesh->mNormals[face.mIndices[vert_i]].z;
@@ -206,24 +180,17 @@ EXPORT_RE RE_pBuffer re_load_model_to_buffer(
         }
     }
 
-    RE_pBuffer new_buffer = re_create_buffer(
+    auto new_buffer = RawBuffer::create(
         sizeof(float) * vertex_data.size(),
         true,
         false
     );
 
-    float *maped = reinterpret_cast<float *>(re_map_buffer(new_buffer));
+    float *maped = reinterpret_cast<float *>(new_buffer->map());
     memcpy(maped, vertex_data.data(), vertex_data.size() * sizeof(float));
-    re_unmap_buffer(new_buffer);
+    new_buffer->unmap();
 
     return new_buffer;
-}
-
-EXPORT_RE void re_free_load_cache(void *cache) {
-    auto *c = static_cast<Cache *>(cache);
-
-    c->importer.FreeScene();
-    delete c;
 }
 
 EXPORT_RE void re_fetch_image_file_extent(
@@ -238,28 +205,27 @@ EXPORT_RE void re_fetch_image_file_extent(
     *height = _h;
 }
 
-EXPORT_RE RE_pBuffer re_load_image_to_buffer(
-    const char *path,
-    uint32_t *_width,
-    uint32_t *_height
-) {
+std::tuple<std::shared_ptr<RawBuffer>, uint32_t, uint32_t> RenderEngine::load_texture_to_buffer(
+    const std::filesystem::path& path
+)
+{
     int width, height, channels;
 
     stbi_uc *image_data = stbi_load(
-        path,
+        path.c_str(),
         &width,
         &height,
         &channels,
         4
     );
 
-    RE_pBuffer buffer = re_create_buffer(
+    auto buffer = RawBuffer::create(
         width * height * 4 * sizeof(uint8_t),
         true,
         false
     );
 
-    auto *buffer_data = reinterpret_cast<uint8_t *>(re_map_buffer(buffer));
+    auto *buffer_data = buffer->map();
 
     for (uint32_t y = 0; y < height; y++) {
         for (uint32_t x = 0; x < width; x++) {
@@ -276,29 +242,31 @@ EXPORT_RE RE_pBuffer re_load_image_to_buffer(
         }
     }
 
-    re_unmap_buffer(buffer);
+    buffer->unmap();
 
     stbi_image_free(image_data);
 
-    if (_width != nullptr)
-    {
-        *_width = width;
-    }
-    if (_height != nullptr)
-    {
-        *_height = height;
-    }
-
-    return buffer;
+    return {buffer, width, height};
 }
 
-EXPORT_RE void re_free_buffer(
-    RE_pBuffer buffer
-) {
-    auto *_buffer = reinterpret_cast<RE_Buffer *>(buffer);
+vk::WriteDescriptorSet RawBuffer::get_descriptor_set_write(
+    vk::DescriptorType type
+)
+{
+    vk::WriteDescriptorSet write_descriptor_set = {};
+    write_descriptor_set.descriptorCount = 1;
+    write_descriptor_set.pBufferInfo = &this->_set_info;
+    write_descriptor_set.descriptorType = type;
+    return write_descriptor_set;
+}
+
+RawBuffer::~RawBuffer() {
+    if (!_valid)
+    {
+        return;
+    }
 
     vkb_device_lock.lock();
-    vmaDestroyBuffer(vma_allocator, _buffer->buffer, _buffer->allocation);
+    vmaDestroyBuffer(vma_allocator, _buffer, _allocation);
     vkb_device_lock.unlock();
-    delete _buffer;
 }

@@ -1,7 +1,7 @@
 //
 // Created by Роман  Тимофеев on 27.04.2026.
 //
-
+module;
 #include <VkBootstrap.h>
 
 #define GLFW_INCLUDE_VULKAN
@@ -10,7 +10,10 @@
 #include "uid.h"
 #include <re_typedefs.h>
 
+#include <memory>
+
 #include "export_macro.h"
+
 
 #if defined(__APPLE__)
 #include <iostream>
@@ -23,52 +26,16 @@
 #include <vulkan/vulkan.hpp>
 #endif
 
+module render_engine;
+
 #if defined(__linux__)
 import std;
 import vulkan;
 #endif
 import command_encoders;
 import synchronization;
-import storage_buffer;
 import render_engine_shares;
-import image;
-
-std::vector<vk::Image> vk_swap_chain_images;
-std::vector<VkImageView> vk_swap_chain_views;
-std::vector<vk::Semaphore> vk_swap_chain_semaphores{};
-
-std::vector<RE_Image> re_swap_chain_images{};
-
-uint32_t next_image_semaphore = 0;
-
-inline void init_swap_chain(bool recreate = false) {
-    const vk::SurfaceFormatKHR desired_format = {
-        vk::Format::eR8G8B8A8Srgb,
-        vk::ColorSpaceKHR::eSrgbNonlinear
-    };
-
-    auto swap_chain_builder = vkb::SwapchainBuilder(
-        vkb_device,
-        vk_surface
-    ).set_desired_format(desired_format);
-
-    swap_chain_builder.add_image_usage_flags(VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
-
-    if (recreate) {
-        swap_chain_builder.set_old_swapchain(vkb_swap_chain);
-        vkb_swap_chain.destroy_image_views(vk_swap_chain_views);
-    }
-
-    auto swap_chain = swap_chain_builder.build();
-
-    if (!swap_chain.has_value()) {
-        throw std::runtime_error(std::format("Failed to build swap chain: {}", swap_chain.error().message()));
-    }
-
-    vkb::destroy_swapchain(vkb_swap_chain);
-
-    vkb_swap_chain = swap_chain.value();
-}
+import Image;
 
 inline void init_command_pool() {
     auto device = vk::Device(vkb_device.device);
@@ -94,44 +61,7 @@ inline void init_command_pool() {
     vk_render_command_pool = command_pool;
 }
 
-void populate_swapchain() {
-    auto images = vkb_swap_chain.get_images().value();
-    auto image_views = vkb_swap_chain.get_image_views().value();
-    vk_swap_chain_images.clear();
-    vk_swap_chain_views.clear();
-
-    vk_swap_chain_semaphores.reserve(vkb_swap_chain.image_count);
-    re_swap_chain_images.resize(vkb_swap_chain.image_count);
-
-    vk::Device _device = vkb_device.device;
-
-    for (auto semaphore: vk_swap_chain_semaphores) {
-        vkb_device_lock.lock();
-        _device.destroy(semaphore);
-        vkb_device_lock.unlock();
-    }
-
-    vk_swap_chain_semaphores.clear();
-
-    vk::SemaphoreCreateInfo sci{};
-
-    for (size_t i = 0; i < vkb_swap_chain.image_count; i++) {
-        vkb_device_lock.lock();
-        vk_swap_chain_semaphores.emplace_back(_device.createSemaphore(sci));
-        vkb_device_lock.unlock();
-    }
-
-
-    vk_swap_chain_images.reserve(images.size());
-    vk_swap_chain_views.reserve(images.size());
-
-    for (uint32_t i = 0; i < images.size(); i++) {
-        vk_swap_chain_images.emplace_back(images[i]);
-        vk_swap_chain_views.emplace_back(image_views[i]);
-    }
-}
-
-EXPORT_RE void init_render_engine(
+void RenderEngine::init(
     GLFWwindow *window
 ) {
     uint32_t glfw_extension_count;
@@ -265,118 +195,19 @@ EXPORT_RE void init_render_engine(
     );
 }
 
-EXPORT_RE void re_wait_device_free() {
+void RenderEngine::wait_device_free() {
     vk::Device device = vkb_device.device;
     vkb_device_lock.lock();
     device.waitIdle();
     vkb_device_lock.unlock();
 }
 
-EXPORT_RE void re_free_render_engine() {
-    re_wait_device_free();
+void RenderEngine::release() {
+    RenderEngine::wait_device_free();
     free_semaphores();
     vk::Device _device = vkb_device.device;
 
     for (auto &sem: vk_swap_chain_semaphores) {
         _device.destroy(sem);
     }
-}
-
-
-
-EXPORT_RE RE_pImage re_get_present_image() {
-    vk::Device vk_device = vkb_device.device;
-
-swap_chain_accssing:
-
-    if (next_image_semaphore >= vk_swap_chain_semaphores.size()) {
-        next_image_semaphore = 0;
-    }
-
-    int64_t id;
-
-    try
-    {
-        auto result = vk_device.acquireNextImageKHR(
-            vkb_swap_chain.swapchain,
-            UINT64_MAX,
-            vk_swap_chain_semaphores[next_image_semaphore],
-            {}
-        );
-        id = result.value;
-    }catch (vk::OutOfDateKHRError& _)
-    {
-        id = -1;
-    }
-
-    if (id == -1) {
-        re_wait_device_free();
-        init_swap_chain(true);
-        populate_swapchain();
-        goto swap_chain_accssing;
-    }
-
-    auto* image = &re_swap_chain_images[id];
-    image->is_swapchain = true;
-    image->image = vk_swap_chain_images[id];
-    image->view = vk_swap_chain_views[id];
-    image->last_layout = vk::ImageLayout::eUndefined;
-    image->uid = gen_uid();
-
-    image->semaphore = &vk_swap_chain_semaphores[next_image_semaphore];
-    image->width = vkb_swap_chain.extent.width;
-    image->height = vkb_swap_chain.extent.height;
-    image->format = static_cast<vk::Format>(vkb_swap_chain.image_format);
-    image->image_index = id;
-
-    next_image_semaphore++;
-
-    return image;
-}
-
-EXPORT_RE void re_present_image(
-    RE_pImage image
-) {
-    auto *_image = reinterpret_cast<RE_Image *>(image);
-
-    if (!_image->is_swapchain) {
-        return;
-    }
-
-    vk::Device device = vkb_device.device;
-
-    auto semaphore = ResourceFrame::transfer_images_layout(
-        std::views::single(std::pair{reinterpret_cast<RE_Image*>(image), I_PRESENT})
-    );
-
-    vk::SwapchainKHR swapchain = vkb_swap_chain.swapchain;
-
-    vk::PresentInfoKHR present_info = {};
-    present_info.waitSemaphoreCount = 1;
-    present_info.pWaitSemaphores = &semaphore;
-    present_info.pSwapchains = &swapchain;
-    present_info.swapchainCount = 1;
-    present_info.pImageIndices = &_image->image_index;
-
-    vkb_device_lock.lock();
-
-    try
-    {
-        auto result = vk_queue.presentKHR(present_info);
-        if (result != vk::Result::eSuccess)
-        {
-            vkb_device_lock.unlock();
-            free_semaphore(_image->semaphore);
-            return;
-        }
-    }catch (vk::OutOfDateKHRError& _)
-    {
-        vkb_device_lock.unlock();
-        free_semaphore(_image->semaphore);
-        return;
-    }
-
-    vkb_device_lock.unlock();
-
-    free_semaphore(_image->semaphore);
 }
