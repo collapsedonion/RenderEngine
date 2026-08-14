@@ -12,6 +12,7 @@ module;
 
 #if defined(__APPLE__)
 #include <vulkan/vulkan.hpp>
+#include <ranges>
 #endif
 
 module Image;

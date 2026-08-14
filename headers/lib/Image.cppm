@@ -7,6 +7,7 @@ module;
 
 #ifdef __APPLE__
 #include <vulkan/vulkan.hpp>
+#include <memory>
 #endif
 
 export module Image;

@@ -9,10 +9,10 @@ module;
 #include "cmake-build-debug/_deps/assimp-src/contrib/zip/src/miniz.h"
 
 #if defined(__APPLE__)
-#include <optional>
-#include <stdexcept>
+#include <ranges>
 #include <string>
 #include <vector>
+#include <memory>
 #include <vulkan/vulkan.hpp>
 #endif
 

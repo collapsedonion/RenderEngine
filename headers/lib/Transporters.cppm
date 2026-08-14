@@ -2,8 +2,17 @@
 // Created by Onion on 12.08.2026.
 //
 
+module;
+
+#ifdef __APPLE__
+#include <memory>
+#include <functional>
+#endif
+
 export module Transporters;
+#ifdef __linux__
 export import std;
+#endif
 import Buffer;
 import Image;
 import dynamic_dispatchable_iterator;

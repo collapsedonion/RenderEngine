@@ -8,16 +8,26 @@
 #include <glm/ext/matrix_clip_space.hpp>
 #include "glm/fwd.hpp"
 
+#ifdef __APPLE__
+#include <memory>
+#include <span>
+#include <chrono>
+#include <ranges>
+#endif
+
+#ifdef __linux__
+import vulkan;
+import std;
+#endif
+
 import Buffer;
 import Image;
 import render_engine;
 import RenderObject;
 import DescriptorPool;
 import resource_lib;
-import vulkan;
 import Transporters;
 import Dispatchers;
-import std;
 import dynamic_dispatchable_iterator;
 
 const std::string json_path = "resources.json";

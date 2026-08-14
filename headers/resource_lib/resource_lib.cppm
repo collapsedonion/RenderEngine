@@ -3,6 +3,11 @@
 //
 module;
 
+#ifdef __APPLE__
+#include <memory>
+#include <filesystem>
+#endif
+
 export module resource_lib;
 import Buffer;
 import Image;

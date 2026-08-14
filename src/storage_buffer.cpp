@@ -20,6 +20,7 @@ module;
 #if defined(__APPLE__)
 #include <array>
 #include <vector>
+#include <filesystem>
 #include <vulkan/vulkan.hpp>
 #endif
 

@@ -5,6 +5,13 @@ module;
 
 #include "re_typedefs.h"
 
+#ifdef __APPLE__
+#include <memory>
+#include <vulkan/vulkan.hpp>
+#include <unordered_map>
+#include <ranges>
+#endif
+
 export module DescriptorPool;
 
 #ifdef __linux__

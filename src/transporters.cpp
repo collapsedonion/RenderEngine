@@ -13,8 +13,10 @@ module;
 #include <span>
 #include <stdexcept>
 #include <string>
+#include <memory>
 #include <thread>
 #include <vector>
+#include <functional>
 #include <vulkan/vulkan.hpp>
 #endif
 

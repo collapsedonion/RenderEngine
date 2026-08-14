@@ -3,14 +3,15 @@
 //
 module;
 #include <vk_mem_alloc.h>
-
 #include "assimp/scene.h"
-#ifdef __APPLE__
-#include <cstdint>
-#include <cinttypes>
-#include <vulkan/vulkan.hpp>
-#endif
 #include <assimp/Importer.hpp>
+
+#ifdef __APPLE__
+#include <vulkan/vulkan.hpp>
+#include <cinttypes>
+#include <memory>
+#include <filesystem>
+#endif
 
 export module Buffer;
 

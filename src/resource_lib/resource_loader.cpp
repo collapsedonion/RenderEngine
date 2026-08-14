@@ -4,6 +4,11 @@
 module;
 #include <re_typedefs.h>
 #include <nlohmann/json.hpp>
+
+#ifdef __APPLE__
+#include <fstream>
+#endif
+
 module resource_lib;
 
 #ifdef __linux__

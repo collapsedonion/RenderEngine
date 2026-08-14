@@ -2,9 +2,11 @@
 // Created by Onion on 10.08.2026.
 //
 module;
-#include "cmake-build-debug/_deps/glm-src/glm/detail/type_quat.hpp"
+
 #ifdef __APPLE__
 #include <ranges>
+#include <coroutine>
+#include <generator>
 #endif
 
 export module dynamic_dispatchable_iterator;

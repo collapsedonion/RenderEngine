@@ -4,6 +4,14 @@
 module;
 #include <re_typedefs.h>
 
+#ifdef __APPLE__
+#include <vector>
+#include <vulkan/vulkan.hpp>
+#include <map>
+#include <unordered_map>
+#include <memory>
+#endif
+
 export module ShaderModule;
 #ifdef __linux__
 export import std;

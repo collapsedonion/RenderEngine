@@ -1,6 +1,11 @@
 //
 // Created by Onion on 10.08.2026.
 //
+module;
+
+#ifdef __APPLE__
+#include <vulkan/vulkan.hpp>
+#endif
 
 export module Resource;
 

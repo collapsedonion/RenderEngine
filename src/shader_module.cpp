@@ -11,6 +11,7 @@ module;
 #include <array>
 #include <ranges>
 #include <vector>
+#include <memory>
 #include <vulkan/vulkan.hpp>
 #endif
 

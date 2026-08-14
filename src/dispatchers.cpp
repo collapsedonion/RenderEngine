@@ -3,6 +3,15 @@
 //
 module;
 #include <VkBootstrap.h>
+
+#ifdef __APPLE__
+#include <cinttypes>
+#include <memory>
+#include <coroutine>
+#include <vulkan/vulkan.hpp>
+#include <thread>
+#endif
+
 module Dispatchers;
 
 #ifdef __linux__

@@ -1,6 +1,12 @@
 //
 // Created by Onion on 12.08.2026.
 //
+module;
+
+#ifdef __APPLE__
+#include <memory>
+#include <span>
+#endif
 
 export module RenderObject;
 export import Buffer;

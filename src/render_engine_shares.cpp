@@ -5,6 +5,10 @@ module;
 
 #include <VkBootstrap.h>
 
+#ifdef __APPLE__
+#include <vulkan/vulkan.hpp>
+#endif
+
 module render_engine_shares;
 
 #ifdef __linux__
