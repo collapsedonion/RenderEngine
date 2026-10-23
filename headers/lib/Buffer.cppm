@@ -69,6 +69,8 @@ export namespace RenderEngine
             );
         }
 
+        std::uint64_t get_device_address();
+
         /**
          * Returns buffers internal size
          *

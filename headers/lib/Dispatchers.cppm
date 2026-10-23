@@ -5,6 +5,9 @@ module;
 
 #ifdef __APPLE__
 #include <memory>
+#include <vulkan/vulkan.hpp>
+#include <vector>
+#include <functional>
 #endif
 
 export module Dispatchers;
@@ -39,4 +42,31 @@ export namespace RenderEngine
         std::shared_ptr<Image> depth_image,
         bool load_image
     );
+
+    class RenderRecorder {
+    private:
+        void* _rf;
+        vk::CommandBuffer _main_command_buffer;
+        std::vector<vk::CommandBuffer> _command_buffers = {};
+
+    private:
+        RenderRecorder();
+        ~RenderRecorder();
+
+    public:
+        void render(
+            std::shared_ptr<ShaderModule> shader_module,
+            std::string& pipeline_name,
+            Iterator<Image*>& target_images,
+            Iterator<RenderObject>& render_objects,
+            std::shared_ptr<Image> depth_image,
+            bool load_image
+        );
+
+        static void record(
+            std::function<void(RenderRecorder*)> commands
+        );
+    };
+
+
 }

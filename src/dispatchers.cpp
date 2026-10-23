@@ -10,6 +10,7 @@ module;
 #include <coroutine>
 #include <vulkan/vulkan.hpp>
 #include <thread>
+#include <functional>
 #endif
 
 module Dispatchers;
@@ -74,6 +75,7 @@ void RenderEngine::dispatch_compute_shader(
     vk_pool_lock.unlock();
 
     auto semaphores = rf.get_semaphores();
+    rf.update_image_layouts();
 
     vk::SubmitInfo submit_info{};
     submit_info.commandBufferCount = 1;
@@ -121,9 +123,22 @@ void RenderEngine::dispatch_graphics_pipeline(
     bool load_image
 )
 {
-    ResourceFrame rf{};
+    RenderRecorder::record(
+        [&](RenderRecorder* render_recorder) {
+            render_recorder->render(
+                shader_module,
+                pipeline_name,
+                target_images,
+                render_objects,
+                depth_image,
+                load_image
+            );
+        }
+    );
+}
 
-    auto ppl = shader_module->get_graphics_pipeline(pipeline_name);
+RenderRecorder::RenderRecorder() {
+    this->_rf = new ResourceFrame();
 
     vk::Device device = vkb_device.device;
 
@@ -132,24 +147,106 @@ void RenderEngine::dispatch_graphics_pipeline(
     command_buffer_allocate_info.commandPool = vk_render_command_pool;
     command_buffer_allocate_info.level = vk::CommandBufferLevel::ePrimary;
 
-    vk::CommandBufferAllocateInfo secondary_command_buffers{};
-    secondary_command_buffers.level = vk::CommandBufferLevel::eSecondary;
-    secondary_command_buffers.commandPool = vk_render_command_pool;
-    secondary_command_buffers.commandBufferCount = 2;
-
     vk_pool_lock.lock();
-    vk::CommandBuffer command_buffer = device.allocateCommandBuffers(command_buffer_allocate_info)[0];
-    auto secondary_buffers = device.allocateCommandBuffers(secondary_command_buffers);
+    _main_command_buffer = device.allocateCommandBuffers(
+        command_buffer_allocate_info
+    )[0];
     vk_pool_lock.unlock();
 
     vk::CommandBufferBeginInfo begin_info{};
     begin_info.flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit;
+
     vk_pool_lock.lock();
-    command_buffer.begin(begin_info);
+    _main_command_buffer.begin(begin_info);
+    vk_pool_lock.unlock();
+}
+
+RenderRecorder::~RenderRecorder() {
+    vk_pool_lock.lock();
+    _main_command_buffer.end();
+    vk_pool_lock.unlock();
+    auto* rf = reinterpret_cast<ResourceFrame*>(_rf);
+    rf->update_image_layouts();
+    auto semaphores = rf->get_semaphores();
+
+    vk::SubmitInfo submit_info{};
+    submit_info.commandBufferCount = 1;
+    submit_info.pCommandBuffers = &_main_command_buffer;
+    submit_info.waitSemaphoreCount = semaphores.second.first.size();
+    submit_info.pWaitSemaphores = semaphores.second.first.data();
+    submit_info.pWaitDstStageMask = semaphores.second.second.data();
+    submit_info.signalSemaphoreCount = 1;
+    submit_info.pSignalSemaphores = &semaphores.first;
+
+    vk::Device device = vkb_device.device;
+
+    vk::Queue queue = vkb_device.get_queue(vkb::QueueType::graphics).value();
+
+    vk::FenceCreateInfo fence_info{};
+    vkb_device_lock.lock();
+    vk::Fence fence = device.createFence(fence_info);
+    auto _ = queue.submit(1, &submit_info, fence);
+    vkb_device_lock.unlock();
+
+    std::thread t(
+        [fence, device](
+            std::vector<vk::CommandBuffer>&& command_buffers,
+            vk::CommandBuffer main_cb
+        ) {
+            auto _ = device.waitForFences(
+                fence,
+                true,
+                UINT64_MAX
+            );
+
+            vkb_device_lock.lock();
+            device.destroy(fence);
+            vk_pool_lock.lock();
+
+            device.freeCommandBuffers(vk_render_command_pool, 1, &main_cb);
+
+            device.freeCommandBuffers(
+                vk_render_command_pool,
+                command_buffers.size(),
+                command_buffers.data()
+            );
+
+            vk_pool_lock.unlock();
+            vkb_device_lock.unlock();
+        },
+        std::move(this->_command_buffers),
+        _main_command_buffer
+    );
+
+    t.detach();
+
+    delete rf;
+}
+
+void RenderRecorder::render(std::shared_ptr<ShaderModule> shader_module, std::string &pipeline_name,
+    Iterator<Image *> &target_images, Iterator<RenderObject> &render_objects, std::shared_ptr<Image> depth_image,
+    bool load_image) {
+
+    vk::Device device = vkb_device.device;
+    vk::CommandBufferAllocateInfo allocate_info = {};
+    allocate_info.level = vk::CommandBufferLevel::eSecondary;
+    allocate_info.commandPool = vk_render_command_pool;
+    allocate_info.commandBufferCount = 2;
+
+    vk_pool_lock.lock();
+    auto secondary_buffers = device.allocateCommandBuffers(
+        allocate_info
+    );
     vk_pool_lock.unlock();
 
-    std::array<vk::CommandBuffer, 3> cbs = {command_buffer, secondary_buffers[0], secondary_buffers[1]};
-    rf.record_render(
+    std::array<vk::CommandBuffer, 3> cbs = {
+        _main_command_buffer,
+        secondary_buffers[0],
+        secondary_buffers[1]
+    };
+
+    auto* rf = static_cast<ResourceFrame*>(_rf);
+    rf->record_render(
         cbs,
         shader_module.get(),
         pipeline_name,
@@ -159,50 +256,13 @@ void RenderEngine::dispatch_graphics_pipeline(
         load_image
     );
 
-    vk_pool_lock.lock();
-    command_buffer.end();
-    vk_pool_lock.unlock();
-    rf.update_image_layouts();
-
-    auto semaphores = rf.get_semaphores();
-
-    vk::SubmitInfo submit_info{};
-    submit_info.commandBufferCount = 1;
-    submit_info.pCommandBuffers = &command_buffer;
-    submit_info.waitSemaphoreCount = semaphores.second.first.size();
-    submit_info.pWaitSemaphores = semaphores.second.first.data();
-    submit_info.pWaitDstStageMask = semaphores.second.second.data();
-    submit_info.signalSemaphoreCount = 1;
-    submit_info.pSignalSemaphores = &semaphores.first;
-
-    vk::Queue queue = vkb_device.get_queue(vkb::QueueType::graphics).value();
-
-    vk::FenceCreateInfo fence_info{};
-    vkb_device_lock.lock();
-    vk::Fence fence = device.createFence(fence_info);
-
-    auto _ =queue.submit(1, &submit_info, fence);
-
-    vkb_device_lock.unlock();
-
-    std::thread t(
-        [=]() {
-            vk::Fence t_fence = fence;
-            vk::CommandBuffer t_buffer = command_buffer;
-            vk::CommandBuffer s1 = secondary_buffers[0];
-            vk::CommandBuffer s2 = secondary_buffers[1];
-            auto _ = device.waitForFences(t_fence, true, UINT64_MAX);
-
-            vkb_device_lock.lock();
-            device.destroy(t_fence);
-            vk_pool_lock.lock();
-            device.freeCommandBuffers(vk_render_command_pool, 1, &t_buffer);
-            device.freeCommandBuffers(vk_render_command_pool, 1, &s1);
-            device.freeCommandBuffers(vk_render_command_pool, 1, &s2);
-            vk_pool_lock.unlock();
-            vkb_device_lock.unlock();
-        }
+    _command_buffers.insert_range(
+        _command_buffers.end(),
+        secondary_buffers
     );
+}
 
-    t.detach();
+void RenderRecorder::record(std::function<void(RenderRecorder *)> commands) {
+    auto rr = RenderRecorder();
+    commands(&rr);
 }

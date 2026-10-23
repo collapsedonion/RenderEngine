@@ -4,6 +4,7 @@
 
 module;
 #include <vk_mem_alloc.h>
+#include <re_typedefs.h>
 #include <VkBootstrap.h>
 
 #if defined(__APPLE__)
@@ -39,5 +40,6 @@ export std::vector<VkImageView> vk_swap_chain_views;
 export std::vector<vk::Semaphore> vk_swap_chain_semaphores{};
 export uint32_t next_image_semaphore = 0;
 
+export vk::Format image_format_re_to_vk(RE_IMAGE_FORMATS formats);
 export void init_swap_chain(bool recreate = false);
 export void populate_swapchain();

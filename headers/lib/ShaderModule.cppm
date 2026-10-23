@@ -96,13 +96,21 @@ export namespace RenderEngine
             const std::string& pipeline_name,
             const std::string& vertex_name,
             const std::string& fragment_name,
-            bool depth_test_enable
+            bool depth_test_enable,
+            std::vector<RE_IMAGE_FORMATS> out_image_formats = {}
         );
 
         std::shared_ptr<RawBuffer> allocate_compatible_vertex_buffer(
             const std::string& graphics_pipeline_name,
             std::size_t vertex_count
         );
+
+        [[nodiscard]]
+        bool contains_compute_pipeline(
+            const std::string& name
+        ) const {
+            return _compute_pipelines.contains(name);
+        }
 
         [[nodiscard]]
         vk::DescriptorSetLayout get_set_layout(

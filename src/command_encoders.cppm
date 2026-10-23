@@ -494,16 +494,29 @@ private:
         {
             auto [buffer, usage_type] = buff;
 
+            bool just_added = false;
             if (!this->used_buffers.contains(buffer->get_uid()))
             {
+                just_added = true;
                 this->used_buffers.insert({buffer->get_uid(), usage_type});
             }
 
             auto& used_buffer = this->used_buffers[buffer->get_uid()];
 
-            if (usage_type == T_READ && used_buffer == usage_type)
-            {
-                continue;
+            if (used_buffer == usage_type && !just_added) {
+                bool skip = false;
+                switch (used_buffer) {
+                    case T_READ:
+                    case C_UNIFORM:
+                        skip = true;
+
+                    default:
+                        break;
+                }
+
+                if (skip) {
+                    continue;
+                }
             }
 
             vk::BufferMemoryBarrier2 barrier = {};
@@ -547,13 +560,31 @@ private:
         for (const std::pair<RenderEngine::Image*, USAGE_TYPE>& image : images)
         {
             auto [img, type] = image;
+            bool just_added = false;
 
             if (!this->used_images.contains(image.first))
             {
+                just_added = true;
                 this->used_images.insert({image.first, {image.second, *img->get_layout_ptr()}});
             }
 
             auto& used_image = this->used_images[image.first];
+
+            if (used_image.first == image.second && !just_added) {
+                bool skip = false;
+                switch (used_image.first) {
+                case I_SAMPLED:
+                case T_READ:
+                case C_UNIFORM:
+                    skip = true;
+                default:
+                    break;
+                }
+
+                if (skip) {
+                    continue;
+                }
+            }
 
             vk::ImageMemoryBarrier2 barrier = {};
 

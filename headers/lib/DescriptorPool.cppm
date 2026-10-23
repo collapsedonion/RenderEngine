@@ -92,6 +92,11 @@ export namespace RenderEngine
             return ptr;
         }
 
+        [[nodiscard]]
+        std::uint32_t get_pool_size() const {
+            return _max_set;
+        }
+
         std::vector<std::shared_ptr<DescriptorSet>> create_sets(
             Iterator<std::uint32_t>& set_indices
         ) const;

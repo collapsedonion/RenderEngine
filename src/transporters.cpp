@@ -108,7 +108,8 @@ void RenderEngine::transfer_buffer_to_image(
 }
 
 void RenderEngine::transfer_image_to_image(
-     Iterator<ImageToImageInfo>& image_transfers
+     Iterator<ImageToImageInfo>& image_transfers,
+     std::function<void()> transfer_callback
 )
 {
     vk::Device device = vkb_device.device;
@@ -179,6 +180,10 @@ void RenderEngine::transfer_image_to_image(
     vkb_device_lock.unlock();
 
     std::thread t([=]() {
+
+        if (transfer_callback) {
+            transfer_callback();
+        }
         vk::Fence _fence = fence;
         auto _ = device.waitForFences(_fence, true, UINT64_MAX);
 

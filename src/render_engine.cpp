@@ -101,10 +101,13 @@ void RenderEngine::init(
 
     vk_surface = vk::SurfaceKHR(surface);
 
+    auto features = VkPhysicalDeviceFeatures{};
+    features.shaderInt64 = true;
     //auto features1_1 = VkPhysicalDeviceVulkan11Features{};
 
     auto features1_2 = VkPhysicalDeviceVulkan12Features{};
     features1_2.timelineSemaphore = true;
+    features1_2.bufferDeviceAddress = true;
 
     auto features1_3 = VkPhysicalDeviceVulkan13Features{};
     features1_3.dynamicRendering = true;
@@ -125,6 +128,7 @@ void RenderEngine::init(
                 VK_EXT_EXTENDED_DYNAMIC_STATE_3_EXTENSION_NAME,
                 VK_KHR_DYNAMIC_RENDERING_LOCAL_READ_EXTENSION_NAME
             })
+            .set_required_features(features)
             .set_required_features_12(features1_2)
             .set_required_features_13(features1_3)
             .set_required_features_14(features1_4)
@@ -182,6 +186,7 @@ void RenderEngine::init(
     vma_allocator_create_info.instance = vkb_instance.instance;
     vma_allocator_create_info.pVulkanFunctions = &vulkan_functions;
     vma_allocator_create_info.vulkanApiVersion = VK_API_VERSION_1_4;
+    vma_allocator_create_info.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
 
     vmaCreateAllocator(&vma_allocator_create_info, &vma_allocator);
 

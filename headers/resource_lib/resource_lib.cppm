@@ -74,7 +74,10 @@ export namespace ResourceLib
      * Initializes resource manager's internal storage.
      * Must be called before using any other function of this library.
      */
-    void init_resource_manager();
+    void init_resource_manager(
+        bool default_include_normals = false,
+        bool default_include_uvs = false
+    );
 
     /**
      * Loads a batch of resources described by a JSON file.
@@ -110,6 +113,10 @@ export namespace ResourceLib
         bool flip_triangle_order,
         bool include_uvs,
         bool include_normals
+    );
+
+    bool is_mesh_exists(
+        const std::string& mesh_name
     );
 
     /**

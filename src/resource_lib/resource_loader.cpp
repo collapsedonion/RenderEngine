@@ -7,6 +7,7 @@ module;
 
 #ifdef __APPLE__
 #include <fstream>
+#include <optional>
 #endif
 
 module resource_lib;
@@ -21,10 +22,18 @@ import render_engine;
 static std::unordered_map<std::string, std::vector<std::shared_ptr<RenderEngine::RawBuffer>>> r_loaded_models;
 static std::unordered_map<std::string, std::shared_ptr<RenderEngine::Image>> r_loaded_images;
 
+static bool _default_include_normals = false;
+static bool _default_include_uvs = false;
+
 using namespace RenderEngine;
-void ResourceLib::init_resource_manager() {
+void ResourceLib::init_resource_manager(
+        bool default_include_normals,
+        bool default_include_uvs
+        ) {
     r_loaded_models = {};
     r_loaded_images = {};
+    _default_include_normals = default_include_normals;
+    _default_include_uvs = default_include_uvs;
 }
 
 
@@ -132,20 +141,53 @@ void ResourceLib::load_texture(
     );
 }
 
-std::shared_ptr<RawBuffer> ResourceLib::get_loaded_mesh(
-    const std::string& c_mesh_name
+inline std::optional<std::pair<
+        std::string,
+        std::size_t
+>> unwrap_mesh_name(
+        const std::string& mesh_name
 ) {
-    const std::string mesh_name(c_mesh_name);
+
 
     size_t last_undescore_index = mesh_name.rfind('_');
 
     if (last_undescore_index == std::string::npos)
     {
-        return nullptr;
+        return {};
     }
 
     auto model_name = mesh_name.substr(0, last_undescore_index);
     auto mesh_index = std::stoull(mesh_name.substr(last_undescore_index+1));
+
+    return {{model_name, mesh_index}};
+}
+
+
+bool ResourceLib::is_mesh_exists(
+    const std::string& mesh_name
+) {
+    auto mesh_name_c = unwrap_mesh_name(mesh_name);
+
+    if (!mesh_name_c.has_value()) {
+        return false;
+    }
+
+    auto [model_name, mesh_index] = mesh_name_c.value();
+
+    return r_loaded_models.contains(model_name) && r_loaded_models.at(model_name).size() > mesh_index;
+}
+
+std::shared_ptr<RawBuffer> ResourceLib::get_loaded_mesh(
+    const std::string& c_mesh_name
+) {
+
+    auto mesh_name_c = unwrap_mesh_name(c_mesh_name);
+
+    if (!mesh_name_c.has_value()) {
+        return nullptr;
+    }
+
+    auto [model_name, mesh_index] = mesh_name_c.value();
 
     if (!r_loaded_models.contains(model_name)) {
         return nullptr;
@@ -217,8 +259,8 @@ inline void process_mesh(
 )
 {
     bool flip_triangle_order = false;
-    bool include_uvs = true;
-    bool include_normals = true;
+    bool include_uvs = _default_include_uvs;
+    bool include_normals = _default_include_normals;
 
     std::string rel_path = mesh_json["path"].get<std::string>();
 

@@ -28,23 +28,6 @@ import command_encoders;
 
 using namespace RenderEngine;
 
-vk::Format image_format_re_to_vk(RE_IMAGE_FORMATS formats) {
-    switch (formats) {
-        case RE_IMAGE_FORMAT_R8:
-            return vk::Format::eR8Srgb;
-        case RE_IMAGE_FORMAT_RGB8:
-            return vk::Format::eR8G8B8Srgb;
-        case RE_IMAGE_FORMAT_BGR8:
-            return vk::Format::eB8G8R8Srgb;
-        case RE_IMAGE_FORMAT_RGBA8:
-            return vk::Format::eR8G8B8A8Srgb;
-        case RE_IMAGE_FORMAT_DEPTH:
-            return vk::Format::eD32Sfloat;
-    }
-
-    return vk::Format::eR8G8B8A8Srgb;
-}
-
 Image::Image(
     uint32_t width,
     uint32_t height,
@@ -67,6 +50,10 @@ Image::Image(
             vk::ImageUsageFlagBits::eSampled |
             vk::ImageUsageFlagBits::eTransferSrc |
             vk::ImageUsageFlagBits::eTransferDst;
+
+        if (format == RE_IMAGE_FORMAT_FLOAT4) {
+            image_create_info.usage |= vk::ImageUsageFlagBits::eStorage;
+        }
     }
 
     image_create_info.arrayLayers = 1;

@@ -49,7 +49,8 @@ export namespace RenderEngine
     );
 
     void transfer_image_to_image(
-        Iterator<ImageToImageInfo>& image_transfers
+        Iterator<ImageToImageInfo>& image_transfers,
+        std::function<void()> transfer_callback = {}
     );
 
     void transfer_buffer_to_buffer(

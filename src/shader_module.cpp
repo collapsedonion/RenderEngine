@@ -215,7 +215,8 @@ void ShaderModule::register_render_pipeline (
     const std::string& pipeline_name,
     const std::string& vertex_name,
     const std::string& fragment_name,
-    bool depth_test_enable
+    bool depth_test_enable,
+    std::vector<RE_IMAGE_FORMATS> out_image_formats
 )
 {
     vk::PipelineShaderStageCreateInfo shader_stages[2] = {};
@@ -292,12 +293,25 @@ void ShaderModule::register_render_pipeline (
     size_t color_output_count = _fragment_shaders[fragment_name];
 
     auto color_blend_attachments =
-                std::views::repeat(color_blend_state, color_output_count) |
-                    std::ranges::to<std::vector<vk::PipelineColorBlendAttachmentState>>();
+                std::views::repeat(color_blend_state, color_output_count)
+                | std::ranges::to<std::vector<vk::PipelineColorBlendAttachmentState>>();
 
-    auto color_formats =
-            std::views::repeat(vk::Format::eR8G8B8A8Srgb, color_output_count) |
-                std::ranges::to<std::vector<vk::Format>>();
+
+    std::vector<vk::Format> color_formats;
+
+
+    if (out_image_formats.size() != color_output_count) {
+        color_formats =
+            std::views::repeat(vk::Format::eR8G8B8A8Srgb, color_output_count)
+            | std::ranges::to<std::vector<vk::Format>>();
+
+    }else {
+        color_formats = out_image_formats
+            | std::views::transform([](auto f) -> vk::Format {
+                return image_format_re_to_vk(f);
+            })
+            | std::ranges::to<std::vector<vk::Format>>();
+    }
 
     vk::PipelineColorBlendStateCreateInfo blend_ci{};
     blend_ci.pAttachments = color_blend_attachments.data();

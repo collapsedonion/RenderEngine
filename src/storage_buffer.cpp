@@ -4,6 +4,7 @@
 
 module;
 
+#include <mutex>
 #include <re_typedefs.h>
 #include "stb_image.h"
 
@@ -76,7 +77,8 @@ RawBuffer::RawBuffer(size_t byte_size, bool host, bool random_access)
             vk::BufferUsageFlagBits::eStorageBuffer |
             vk::BufferUsageFlagBits::eTransferSrc |
             vk::BufferUsageFlagBits::eTransferDst |
-            vk::BufferUsageFlagBits::eVertexBuffer;
+            vk::BufferUsageFlagBits::eVertexBuffer |
+            vk::BufferUsageFlagBits::eShaderDeviceAddress;
 
     buffer_create_info.sharingMode = vk::SharingMode::eExclusive;
 
@@ -124,6 +126,23 @@ RawBuffer::RawBuffer(size_t byte_size, bool host, bool random_access)
     _set_info.offset = 0;
     _set_info.range = vk::WholeSize;
     _uid = gen_uid();
+}
+
+std::uint64_t RawBuffer::get_device_address() {
+
+    vk::Device device = vkb_device.device;
+    std::uint64_t address;
+    vk::BufferDeviceAddressInfo address_info = {};
+    address_info.buffer = _buffer;
+
+    {
+        std::lock_guard lock{vkb_device_lock};
+        address = device.getBufferAddress(
+            address_info
+        );
+    }
+
+    return address;
 }
 
 ModelLoader::ModelLoader(const std::filesystem::path& path, bool flip_order)

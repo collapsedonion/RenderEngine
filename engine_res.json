@@ -1,0 +1,15 @@
+{
+  "bricks_text": {
+    "type": "texture",
+    "path": "./bricks.jpg"
+  },
+  "teapot_model":
+  {
+    "type": "mesh",
+    "path": "utah_teapot.obj"
+  },
+  "pig": {
+    "type": "mesh",
+    "path": "Pig.obj"
+  }
+}

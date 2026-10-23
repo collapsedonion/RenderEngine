@@ -5,6 +5,8 @@ module;
 
 #include <VkBootstrap.h>
 
+#include <re_typedefs.h>
+
 #ifdef __APPLE__
 #include <vulkan/vulkan.hpp>
 #endif
@@ -15,6 +17,25 @@ module render_engine_shares;
 import vulkan;
 import std;
 #endif
+
+vk::Format image_format_re_to_vk(RE_IMAGE_FORMATS formats) {
+    switch (formats) {
+        case RE_IMAGE_FORMAT_R8:
+            return vk::Format::eR8Srgb;
+        case RE_IMAGE_FORMAT_RGB8:
+            return vk::Format::eR8G8B8Srgb;
+        case RE_IMAGE_FORMAT_BGR8:
+            return vk::Format::eB8G8R8Srgb;
+        case RE_IMAGE_FORMAT_RGBA8:
+            return vk::Format::eR8G8B8A8Srgb;
+        case RE_IMAGE_FORMAT_DEPTH:
+            return vk::Format::eD32Sfloat;
+        case RE_IMAGE_FORMAT_FLOAT4:
+            return vk::Format::eR32G32B32A32Sfloat;
+    }
+
+    return vk::Format::eR8G8B8A8Srgb;
+}
 
 void init_swap_chain(bool recreate) {
     const vk::SurfaceFormatKHR desired_format = {
